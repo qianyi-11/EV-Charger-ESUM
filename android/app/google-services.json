@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "851630762779",
+    "project_id": "rexharge-7a902",
+    "storage_bucket": "rexharge-7a902.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:851630762779:android:3008b2998928094a7c81be",
+        "android_client_info": {
+          "package_name": "com.example.rexharge"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCzdf_8a1Tiv2uJuNFtXEbTzm-mfU9GB2w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

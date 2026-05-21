@@ -1,0 +1,393 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import '../theme/app_theme.dart';
+import '../widgets/glass_container.dart';
+import '../widgets/pulsing_glow.dart';
+import '../services/ml_model_service.dart';
+
+
+class MessageModel {
+  final String text;
+  final bool isUser;
+  final DateTime timestamp;
+
+  MessageModel({required this.text, required this.isUser, required this.timestamp});
+}
+
+class AssistantChatScreen extends StatefulWidget {
+  const AssistantChatScreen({super.key});
+
+  @override
+  State<AssistantChatScreen> createState() => _AssistantChatScreenState();
+}
+
+class _AssistantChatScreenState extends State<AssistantChatScreen> {
+  final List<MessageModel> _messages = [];
+  final TextEditingController _inputController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+  
+  bool _isAiTyping = false;
+  bool _showSuggestions = true;
+
+  // Preset detailed Q&A knowledge banks
+  final Map<String, String> _knowledgeBase = {
+    "What does Error 8 mean?": "Error 8 indicates an RCCB (Residual Current Circuit Breaker) Fault or charging cable leakage. The charger's internal sensors detected current leaking to earth (>30mA), or insulation compromise in the cord, and instantly cut the electrical feed to ensure absolute safety.",
+    "Is this dangerous?": "There is no immediate danger. The EVision AI safety relay reacted in milliseconds to isolate the high-voltage lines. However, you should avoid touching the charging plug contacts or vehicle sockets while moisture checks are pending.",
+    "Can customer continue charging?": "Charging is locked out until the leakage fault is resolved. The system blocks current delivery to secure the vehicle battery and charger casing. Please keep the charging plug securely locked in the side dock for now.",
+    "How to fix this?": "Follow these steps: 1) Disconnect the plug from the car. 2) Inspect the cable sheath and connector pin slots for water, dirt, or cuts. 3) Wipe the connector dry if wet. 4) If clear, toggle the main power isolator switch OFF, wait 30 seconds, then toggle back ON. A technician is already dispatched to run insulation diagnostics if the error persists.",
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    // Welcome message
+    _messages.add(
+      MessageModel(
+        text: "Hello! I am your EVision AI technical diagnostic assistant. I have loaded the telemetry metrics for the active charger. How can I help you resolve this issue?",
+        isUser: false,
+        timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  void _sendMessage(String text) {
+    if (text.trim().isEmpty) return;
+
+    // Capture user query
+    final userMsg = MessageModel(text: text, isUser: true, timestamp: DateTime.now());
+
+    setState(() {
+      _messages.add(userMsg);
+      _showSuggestions = false;
+      _isAiTyping = true;
+    });
+
+    _scrollToBottom();
+    _inputController.clear();
+
+    // Map history to server schema format
+    final historyJson = _messages
+        .take(_messages.length - 1) // Exclude the new user message from history itself
+        .map((m) => {
+              "isUser": m.isUser,
+              "text": m.text,
+            })
+        .toList();
+
+    // Query technical chat engine dynamically
+    final mlService = MlModelService();
+    mlService.chatWithAi(text, historyJson).then((response) {
+      if (!mounted) return;
+      setState(() {
+        _isAiTyping = false;
+        _messages.add(MessageModel(text: response, isUser: false, timestamp: DateTime.now()));
+      });
+      _scrollToBottom();
+    }).catchError((err) {
+      if (!mounted) return;
+      setState(() {
+        _isAiTyping = false;
+        _messages.add(MessageModel(
+          text: "AI Connection Error: ${err.toString()}",
+          isUser: false,
+          timestamp: DateTime.now(),
+        ));
+      });
+      _scrollToBottom();
+    });
+  }
+
+  void _scrollToBottom() {
+    Timer(const Duration(milliseconds: 100), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Row(
+          children: [
+            PulsingGlow(
+              glowColor: AppColors.successGreen,
+              minBlurRadius: 4,
+              maxBlurRadius: 10,
+              child: Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(color: AppColors.successGreen, shape: BoxShape.circle),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("EVision AI Assistant", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                Text("System Engineer Bot • Online", style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+              ],
+            ),
+          ],
+        ),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Chat bubble list
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final msg = _messages[index];
+                  return _buildMessageBubble(msg);
+                },
+              ),
+            ),
+
+            // Typing Indicator
+            if (_isAiTyping) _buildTypingIndicator(),
+
+            // Suggested prompt grid on startup
+            if (_showSuggestions) _buildSuggestionsGrid(),
+
+            // Bottom Input Bar
+            _buildInputBar(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageBubble(MessageModel msg) {
+    final bool isUser = msg.isUser;
+    
+    return Align(
+      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.78),
+        child: Column(
+          crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            GlassContainer(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              bgColor: isUser ? AppColors.electricBlue.withOpacity(0.12) : AppColors.secondaryBg.withOpacity(0.6),
+              borderColor: isUser ? AppColors.electricBlue.withOpacity(0.3) : AppColors.glassBorder,
+              child: Text(
+                msg.text,
+                style: const TextStyle(fontSize: 14, color: Colors.white, height: 1.4),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: Text(
+                "${msg.timestamp.hour.toString().padLeft(2, '0')}:${msg.timestamp.minute.toString().padLeft(2, '0')}",
+                style: const TextStyle(fontSize: 9, color: AppColors.textSecondary),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.only(left: 20, bottom: 12),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: GlassContainer(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _DotPulse(delay: 0),
+              SizedBox(width: 4),
+              _DotPulse(delay: 150),
+              SizedBox(width: 4),
+              _DotPulse(delay: 300),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionsGrid() {
+    final List<String> prompts = _knowledgeBase.keys.toList();
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "Suggested Questions:",
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 8),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 2.8,
+            ),
+            itemCount: prompts.length,
+            itemBuilder: (context, index) {
+              return GestureDetector(
+                onTap: () => _sendMessage(prompts[index]),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GlassContainer(
+                    padding: const EdgeInsets.all(8),
+                    child: Center(
+                      child: Text(
+                        prompts[index],
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    return GlassContainer(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+      child: Row(
+        children: [
+          // Voice Mic Button
+          GestureDetector(
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Voice recognition module initializing... Speak now."),
+                  backgroundColor: AppColors.secondaryBg,
+                ),
+              );
+            },
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: const BoxDecoration(color: AppColors.secondaryBg, shape: BoxShape.circle),
+              child: const Icon(Icons.mic, color: AppColors.electricBlue, size: 20),
+            ),
+          ),
+          const SizedBox(width: 8),
+          
+          // Text Input Box
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              decoration: BoxDecoration(
+                color: Colors.black38,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.glassBorder),
+              ),
+              child: TextField(
+                controller: _inputController,
+                onSubmitted: _sendMessage,
+                style: const TextStyle(fontSize: 14, color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: "Ask me anything...",
+                  hintStyle: TextStyle(color: Colors.white24, fontSize: 13),
+                  border: InputBorder.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+
+          // Send Button
+          GestureDetector(
+            onTap: () => _sendMessage(_inputController.text),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [AppColors.electricBlue, Color(0xFF005F80)],
+                  ),
+                ),
+                child: const Icon(Icons.send_rounded, color: Colors.white, size: 18),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DotPulse extends StatefulWidget {
+  final int delay;
+
+  const _DotPulse({required this.delay});
+
+  @override
+  State<_DotPulse> createState() => _DotPulseState();
+}
+
+class _DotPulseState extends State<_DotPulse> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
+    
+    Future.delayed(Duration(milliseconds: widget.delay), () {
+      if (mounted) _ctrl.repeat(reverse: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        return Opacity(
+          opacity: 0.3 + (_ctrl.value * 0.7),
+          child: Container(
+            width: 6,
+            height: 6,
+            decoration: const BoxDecoration(color: AppColors.electricBlue, shape: BoxShape.circle),
+          ),
+        );
+      },
+    );
+  }
+}
