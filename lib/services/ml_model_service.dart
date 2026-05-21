@@ -127,7 +127,28 @@ class MlModelService {
       return "http://$host:5000/api/vision";
     }
     // IMPORTANT: Use your dev machine's WiFi IP so a real phone on the same network can reach the API.
-    return "http://10.164.37.41:5000/api/vision";
+    return "http://10.168.36.67:5000/api/vision";
+  }
+
+  /// Base URL for non-vision API routes (e.g. /api/chat).
+  String get cloudServerApiBaseUrl {
+    return cloudApiBaseUrl.replaceFirst('/api/vision', '/api');
+  }
+
+  List<Map<String, dynamic>> _sanitizeChatHistory(List<Map<String, dynamic>> history) {
+    int startIndex = 0;
+    while (startIndex < history.length && history[startIndex]['isUser'] != true) {
+      startIndex += 1;
+    }
+
+    return history
+        .skip(startIndex)
+        .map((msg) => {
+              'isUser': msg['isUser'] == true,
+              'text': (msg['text'] ?? '').toString(),
+            })
+        .where((msg) => (msg['text'] as String).trim().isNotEmpty)
+        .toList();
   }
 
   // Helper for localtunnel
@@ -523,12 +544,71 @@ class MlModelService {
   // STEP 6: COGNITIVE AI CHAT ASSISTANT
   // ===========================================================================
   Future<String> chatWithAi(String message, List<Map<String, dynamic>> history) async {
+    final sanitizedHistory = _sanitizeChatHistory(history);
+
+    switch (integrationMode) {
+      case MlIntegrationMode.mock:
+        return _mockChatResponse(message);
+      case MlIntegrationMode.cloudApi:
+        return _chatViaServer(message, sanitizedHistory);
+      case MlIntegrationMode.localOnDevice:
+        return _chatViaGeminiDirect(message, sanitizedHistory);
+    }
+  }
+
+  String _mockChatResponse(String message) {
+    final normalized = message.toLowerCase();
+    if (normalized.contains('cannot charge') || normalized.contains('not working')) {
+      return '[Symptom]: Vehicle not receiving power.\n[Root Cause]: Ambient system state unknown.\n[Advised Action]: Please check the status indicator lights on the front face of the charger. Is it completely dark (no light), solid red, or blinking red?';
+    }
+    if (normalized.contains('no light') || normalized.contains('no power') || normalized.contains('dead')) {
+      return '[Symptom]: Charger display/LEDs are completely unlit.\n[Root Cause]: Upstream power supply interruption.\n[Advised Action]: Inspect the physical Isolator switch near the charger. If it is OFF, safely flip it to ON. If the Isolator is already ON, check your main EVDB for tripped breakers. If the unit remains dark, tap [Start Diagnosis].';
+    }
+    return '[Root Cause]: No diagnostic input provided\n[Advised Action]: EVision AI is ready. Tap [Start Diagnosis] to begin charger fault detection. Alternatively, briefly describe your issue (e.g. "red blinking light" or "no power") for guided troubleshooting.';
+  }
+
+  Future<String> _chatViaServer(String message, List<Map<String, dynamic>> history) async {
     try {
-      final apiKey = "AIzaSyBPjbOVvDX9eBs8RRfqtgCY0QyRAPZIH98";
+      final uri = Uri.parse('$cloudServerApiBaseUrl/chat');
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          ..._headers,
+        },
+        body: jsonEncode({
+          'message': message,
+          'history': history,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final reply = json['reply']?.toString().trim();
+        if (reply != null && reply.isNotEmpty) {
+          return reply;
+        }
+        throw Exception('Server returned an empty reply');
+      }
+
+      final errorBody = response.body.trim();
+      throw Exception('Server error ${response.statusCode}${errorBody.isNotEmpty ? ': $errorBody' : ''}');
+    } catch (e) {
+      return 'Connection Error: Failed to reach the diagnostic AI server at $cloudServerApiBaseUrl/chat. Start the server in /server and ensure GEMINI_API_KEY is set in server/.env. (${e.toString()})';
+    }
+  }
+
+  Future<String> _chatViaGeminiDirect(String message, List<Map<String, dynamic>> history) async {
+    const apiKey = String.fromEnvironment('GEMINI_API_KEY');
+    if (apiKey.isEmpty) {
+      return 'Connection Error: GEMINI_API_KEY is not configured for direct on-device chat.';
+    }
+
+    try {
       final model = GenerativeModel(
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
         apiKey: apiKey,
-        systemInstruction: Content.system('''You are the Guardrailed AI Assistant for a Smart EV Charger App. 
+        systemInstruction: Content.system(r'''You are the Guardrailed AI Assistant for a Smart EV Charger App.
 Your goal is to triage user issues dynamically by asking clarifying questions, identifying the specific root cause, and providing structured next actions.
 Your role is to:
 Assist users in identifying EV charger problems
@@ -542,19 +622,34 @@ You behave like a professional EV charging technical support engineer.
 CRITICAL RULES:
 1. Speak in a highly structured format using the exact keys: [Symptom], [Root Cause], [Advised Action].
 2. Never invent error code names. Stick strictly to the exact hardware symptoms.
+3. If the user's issue cannot be triaged using standard guides, reply with:
+   "[Symptom]: Unknown
+[Root Cause]: Unrecognized anomaly
+[Advised Action]: Please tap [Start Diagnosis] button below to identify the issue and root cause."
+4. If any protection component is missing or broken, advise the user to not touch it.
+5. Never use emojis, never give generic advice.
+6. Only answer questions related to this app. Politely refuse unrelated questions.
 '''),
       );
 
-      final chatHistory = history.map((msg) {
-        return Content(msg['isUser'] ? 'user' : 'model', [TextPart(msg['text'] ?? '')]);
-      }).toList();
+      final chatHistory = <Content>[];
+      for (final msg in history) {
+        final text = (msg['text'] ?? '').toString().trim();
+        if (text.isEmpty) continue;
+        if (msg['isUser'] == true) {
+          chatHistory.add(Content.text(text));
+        } else {
+          chatHistory.add(Content.model([TextPart(text)]));
+        }
+      }
 
       final chat = model.startChat(history: chatHistory);
       final response = await chat.sendMessage(Content.text(message));
-      
-      return response.text ?? "Sorry, no response returned from Gemini.";
+      return response.text?.trim().isNotEmpty == true
+          ? response.text!.trim()
+          : 'Sorry, no response returned from Gemini.';
     } catch (e) {
-      return "Connection Error: Failed to contact diagnostic AI core backend. (${e.toString()})";
+      return 'Connection Error: Failed to contact diagnostic AI core backend. (${e.toString()})';
     }
   }
 }

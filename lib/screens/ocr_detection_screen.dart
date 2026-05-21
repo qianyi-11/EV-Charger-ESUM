@@ -7,7 +7,6 @@ import '../models/diagnostic_state.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/pulsing_glow.dart';
 import '../widgets/camera_viewfinder.dart';
-import '../services/ml_model_service.dart';
 import '../services/integration_controller.dart';
 import 'package:camera/camera.dart';
 

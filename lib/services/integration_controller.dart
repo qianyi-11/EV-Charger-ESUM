@@ -1,17 +1,14 @@
 import 'dart:io';
-import 'package:camera/camera.dart';
 import 'ocr_handler.dart';
 import 'routing_engine.dart';
 import 'report_generator.dart';
 import 'offline_manager.dart';
-import 'ml_model_service.dart';
 
 class IntegrationController {
   final OcrHandler _ocrHandler = OcrHandler();
   final RoutingEngine _routingEngine = RoutingEngine();
   final ReportGenerator _reportGenerator = ReportGenerator();
   final OfflineManager _offlineManager = OfflineManager();
-  final MlModelService _mlModelService = MlModelService();
 
   OcrResultData? _ocrCache;
 
