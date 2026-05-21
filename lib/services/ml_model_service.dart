@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 /// The integration mode for the custom trained machine learning models.
 enum MlIntegrationMode {
@@ -123,10 +124,14 @@ class MlModelService {
       final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
       return "http://$host:5000/api/vision";
     }
-    // On physical mobile phone, localhost does not resolve to the computer. 
-    // We route directly to your computer's Wi-Fi IP address.
-    return "http://127.0.0.1:5000/api/vision";
+    // IMPORTANT: Change this to your Laptop's WiFi IP Address!
+    return "http://10.164.37.49:5000/api/vision";
   }
+
+  // Helper for localtunnel
+  Map<String, String> get _headers => {
+    "Bypass-Tunnel-Reminder": "true",
+  };
 
   // ===========================================================================
   // STEP 1: SPECIFICATION PLATE OCR
@@ -152,6 +157,7 @@ class MlModelService {
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/ocr");
           final request = http.MultipartRequest("POST", uri)
+            ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
@@ -183,18 +189,6 @@ class MlModelService {
         }
 
       case MlIntegrationMode.localOnDevice:
-        // OPTION B: Packaged .tflite weights inference example:
-        /*
-        final bytes = await File(imageFile.path).readAsBytes();
-        final modelOutput = await LocalTfliteEngine.runOcrInference(bytes);
-        return OcrResult(
-          success: true,
-          brand: modelOutput.brand,
-          modelName: modelOutput.name,
-          serialNumber: modelOutput.serial,
-          confidence: modelOutput.score,
-        );
-        */
         throw UnimplementedError("Option B: On-device local OCR model engine weights not loaded.");
     }
   }
@@ -222,6 +216,7 @@ class MlModelService {
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/detect-gateway");
           final request = http.MultipartRequest("POST", uri)
+            ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
@@ -252,18 +247,6 @@ class MlModelService {
         }
 
       case MlIntegrationMode.localOnDevice:
-        // OPTION B: On-device local YOLOv8-tflite implementation
-        /*
-        final inputImage = File(imageFile.path);
-        final prediction = await LocalYoloEngine.runModel(inputImage);
-        return ChargerDetectionResult(
-          success: true,
-          chargerDetected: prediction.detected,
-          lightDetected: prediction.hasLight,
-          lightColor: prediction.color,
-          confidence: prediction.score,
-        );
-        */
         throw UnimplementedError("Option B: Packaged local YOLOv8 weights are missing in assets.");
     }
   }
@@ -290,6 +273,7 @@ class MlModelService {
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/analyze-pulses");
           final request = http.MultipartRequest("POST", uri)
+            ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
               'video',
               videoFile.path,
@@ -318,17 +302,6 @@ class MlModelService {
         }
 
       case MlIntegrationMode.localOnDevice:
-        // OPTION B: Frame differencing OpenCV on-device video analysis
-        /*
-        final videoData = File(videoFile.path);
-        final pulses = await LocalOpenCvEngine.countFlashes(videoData);
-        return BlinkDetectionResult(
-          success: true,
-          blinkCount: pulses,
-          correlatedErrorCode: "blink-$pulses",
-          confidence: 0.95,
-        );
-        */
         throw UnimplementedError("Option B: On-device OpenCV frame analysis bindings missing.");
     }
   }
@@ -354,6 +327,7 @@ class MlModelService {
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/analyze-isolator");
           final request = http.MultipartRequest("POST", uri)
+            ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
@@ -406,6 +380,7 @@ class MlModelService {
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/analyze-evdb");
           final request = http.MultipartRequest("POST", uri)
+            ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
@@ -444,36 +419,38 @@ class MlModelService {
   // STEP 6: COGNITIVE AI CHAT ASSISTANT
   // ===========================================================================
   Future<String> chatWithAi(String message, List<Map<String, dynamic>> history) async {
-    switch (integrationMode) {
-      case MlIntegrationMode.mock:
-        await Future.delayed(const Duration(milliseconds: 1000));
-        return "I am currently running in offline mock mode. Configure your backend server and set the integrationMode to cloudApi to talk to real Gemini!";
+    try {
+      final apiKey = "AIzaSyBPjbOVvDX9eBs8RRfqtgCY0QyRAPZIH98";
+      final model = GenerativeModel(
+        model: 'gemini-1.5-flash',
+        apiKey: apiKey,
+        systemInstruction: Content.system('''You are the Guardrailed AI Assistant for a Smart EV Charger App. 
+Your goal is to triage user issues dynamically by asking clarifying questions, identifying the specific root cause, and providing structured next actions.
+Your role is to:
+Assist users in identifying EV charger problems
+Provide structured troubleshooting guidance with only text-based
+Explain possible causes clearly and professionally
+Guide users safely toward the next action
+Maintain a calm, technical, and trustworthy tone
+You are NOT a casual chatbot.
+You behave like a professional EV charging technical support engineer.
 
-      case MlIntegrationMode.cloudApi:
-        try {
-          // target http://172.16.1.233:5000/api/chat
-          final chatUrl = cloudApiBaseUrl.replaceAll('/api/vision', '/api/chat');
-          final response = await http.post(
-            Uri.parse(chatUrl),
-            headers: {"Content-Type": "application/json"},
-            body: jsonEncode({
-              "message": message,
-              "history": history,
-            }),
-          );
+CRITICAL RULES:
+1. Speak in a highly structured format using the exact keys: [Symptom], [Root Cause], [Advised Action].
+2. Never invent error code names. Stick strictly to the exact hardware symptoms.
+'''),
+      );
 
-          if (response.statusCode == 200) {
-            final json = jsonDecode(response.body);
-            return json['reply'] ?? "Sorry, no response returned from technical chat engine.";
-          } else {
-            throw Exception("Chat endpoint returned status: ${response.statusCode}");
-          }
-        } catch (e) {
-          return "Connection Error: Failed to contact diagnostic AI core backend. (${e.toString()})";
-        }
+      final chatHistory = history.map((msg) {
+        return Content(msg['isUser'] ? 'user' : 'model', [TextPart(msg['text'] ?? '')]);
+      }).toList();
 
-      case MlIntegrationMode.localOnDevice:
-        return "Local on-device text assistant is offline.";
+      final chat = model.startChat(history: chatHistory);
+      final response = await chat.sendMessage(Content.text(message));
+      
+      return response.text ?? "Sorry, no response returned from Gemini.";
+    } catch (e) {
+      return "Connection Error: Failed to contact diagnostic AI core backend. (${e.toString()})";
     }
   }
 }

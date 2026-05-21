@@ -24,22 +24,33 @@ class _EvdbCheckScreenState extends State<EvdbCheckScreen> {
   int _analysisStep = 0;
   Timer? _analysisTimer;
 
+  CameraController? _cameraController;
+
   void _startDetection() {
     setState(() {
       _state = EvdbState.capturing;
     });
   }
 
-  void _startAnalysis() {
+  void _startAnalysis() async {
     setState(() {
       _state = EvdbState.analyzing;
       _analysisStep = 0;
     });
 
+    XFile photoFile = XFile("mock_evdb_frame.jpg");
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        photoFile = await _cameraController!.takePicture();
+      } catch (e) {
+        debugPrint("Failed to take picture: $e");
+      }
+    }
+
     // Start the ML analysis in the background
     final mlService = MlModelService();
     final Future<EvdbResult> evdbFuture = mlService.processEvdbFrame(
-      XFile("mock_evdb_frame.jpg"),
+      photoFile,
     );
 
     _analysisTimer?.cancel();
@@ -223,6 +234,7 @@ class _EvdbCheckScreenState extends State<EvdbCheckScreen> {
     if (_state == EvdbState.capturing) {
       return CameraViewfinder(
         aspectRatio: 4 / 3,
+        onControllerCreated: (controller) => _cameraController = controller,
         fallbackBuilder: (context) {
           return Container(
             color: Colors.black.withOpacity(0.9),

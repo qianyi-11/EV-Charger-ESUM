@@ -30,6 +30,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
   // Animation Controllers
   late final AnimationController _scannerPulseController;
   late final AnimationController _gearRotationController;
+  CameraController? _cameraController;
 
   @override
   void initState() {
@@ -43,8 +44,6 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat();
-
-    _runDetectionSequence();
   }
 
   @override
@@ -55,15 +54,20 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
     super.dispose();
   }
 
-  void _runDetectionSequence() {
-    // Phase 1: Scanning (0 to 1 second)
+  void _runDetectionSequence() async {
+    if (_cameraController == null || !_cameraController!.value.isInitialized) {
+      return;
+    }
+
     setState(() {
       _phase = DetectionPhase.scanning;
     });
 
-    // Call ML Model Service to find charger body and indicator status
-    final mlService = MlModelService();
-    mlService.processChargerFrame(XFile("mock_frame.jpg")).then((result) {
+    try {
+      final xfile = await _cameraController!.takePicture();
+      final mlService = MlModelService();
+      final result = await mlService.processChargerFrame(xfile);
+
       if (!mounted) return;
       
       if (result.success && result.chargerDetected) {
@@ -71,7 +75,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
           _phase = DetectionPhase.chargerFound;
         });
 
-        Timer(const Duration(seconds: 2), () {
+        Timer(const Duration(seconds: 1), () {
           if (!mounted) return;
           
           setState(() {
@@ -81,45 +85,54 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
             _elapsedMs = 0;
           });
 
-          // Tick timer for the 5-second search phase
+          // Simulate a short scanning delay before evaluating the result
           _tickTimer?.cancel();
           _tickTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
             _elapsedMs += 100;
             setState(() {
               _searchTimer = _elapsedMs / 1000;
-              _progressPercent = (_searchTimer / 5.0).clamp(0.0, 1.0);
+              _progressPercent = (_searchTimer / 3.0).clamp(0.0, 1.0);
             });
 
-            // Branching logic injection based on active selection in global state
-            if (_state.selectedBranch == 2 && _searchTimer >= 3.0) {
-              // Branch 2: Red Light Detected (At 3.0 seconds, shortcut navigation!)
+            if (_searchTimer >= 3.0) {
               _tickTimer?.cancel();
-              setState(() {
-                _phase = DetectionPhase.branch2RedLight;
-              });
+              
+              if (result.lightDetected && (result.lightColor == "RED" || result.lightColor == "FLICKER")) {
+                // Branch 2: Light Detected (Red or Blink)
+                _state.updateChargerInfo(true, true, result.lightColor); // Save to global state
+                setState(() {
+                  _phase = DetectionPhase.branch2RedLight;
+                });
 
-              Timer(const Duration(milliseconds: 1500), () {
-                if (mounted) {
-                  Navigator.pushReplacementNamed(context, "/video-recording");
-                }
-              });
-            } else if (_state.selectedBranch == 1 && _searchTimer >= 5.0) {
-              // Branch 1: No Light Detected (Fails at 5.0 seconds)
-              _tickTimer?.cancel();
-              setState(() {
-                _phase = DetectionPhase.branch1NoLight;
-              });
+                Timer(const Duration(milliseconds: 1500), () {
+                  if (mounted) {
+                    Navigator.pushReplacementNamed(context, "/video-recording"); // Branch 2
+                  }
+                });
+              } else {
+                // Branch 1: No Light Detected
+                _state.updateChargerInfo(true, false, "OFF");
+                setState(() {
+                  _phase = DetectionPhase.branch1NoLight;
+                });
 
-              Timer(const Duration(milliseconds: 2000), () {
-                if (mounted) {
-                  Navigator.pushReplacementNamed(context, "/photo-isolator");
-                }
-              });
+                Timer(const Duration(milliseconds: 2000), () {
+                  if (mounted) {
+                    Navigator.pushReplacementNamed(context, "/isolator-detection"); // Branch 1
+                  }
+                });
+              }
             }
           });
         });
+      } else {
+        // Retry if charger not found
+        Timer(const Duration(seconds: 2), _runDetectionSequence);
       }
-    });
+    } catch (e) {
+      // Fallback or error handling
+      Timer(const Duration(seconds: 2), _runDetectionSequence);
+    }
   }
 
   void _changeSimulatedBranch(int branchId) {
@@ -165,17 +178,25 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
                       children: [
                         Expanded(
                           child: _buildBranchSelectButton(
-                            label: "Branch 1: No Light (Power Issue)",
+                            label: "Branch 1: No Light (5s timeout)",
                             branchId: 1,
                             isSelected: _state.selectedBranch == 1,
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: _buildBranchSelectButton(
-                            label: "Branch 2: Red Light (Blinks)",
+                            label: "Branch 2: Red Light",
                             branchId: 2,
                             isSelected: _state.selectedBranch == 2,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: _buildBranchSelectButton(
+                            label: "Branch 2: Flicker",
+                            branchId: 3,
+                            isSelected: _state.selectedBranch == 3,
                           ),
                         ),
                       ],
@@ -192,6 +213,10 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: CameraViewfinder(
+                      onControllerCreated: (controller) {
+                        _cameraController = controller;
+                        _runDetectionSequence();
+                      },
                       fallbackBuilder: (context) {
                         return Container(
                           color: Colors.black.withOpacity(0.8),
@@ -237,7 +262,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           decoration: BoxDecoration(
             color: isSelected ? color.withOpacity(0.18) : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
@@ -251,7 +276,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
             textAlign: TextAlign.center,
             style: TextStyle(
               color: isSelected ? Colors.white : AppColors.textSecondary,
-              fontSize: 11,
+              fontSize: 10,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
             ),
           ),

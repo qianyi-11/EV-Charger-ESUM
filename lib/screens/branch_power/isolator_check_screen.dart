@@ -26,22 +26,33 @@ class _IsolatorCheckScreenState extends State<IsolatorCheckScreen> {
   Timer? _analysisTimer;
   bool _showMockImage = false;
 
+  CameraController? _cameraController;
+
   void _startDetection() {
     setState(() {
       _state = IsolatorState.capturing;
     });
   }
 
-  void _startAnalysis() {
+  void _startAnalysis() async {
     setState(() {
       _state = IsolatorState.analyzing;
       _analysisStep = 0;
     });
 
+    XFile photoFile = XFile("mock_isolator_frame.jpg");
+    if (_cameraController != null && _cameraController!.value.isInitialized) {
+      try {
+        photoFile = await _cameraController!.takePicture();
+      } catch (e) {
+        debugPrint("Failed to take picture: $e");
+      }
+    }
+
     // Start the ML analysis in the background
     final mlService = MlModelService();
     final Future<IsolatorResult> isolatorFuture = mlService.processIsolatorFrame(
-      XFile("mock_isolator_frame.jpg"),
+      photoFile,
     );
 
     _analysisTimer?.cancel();
@@ -280,6 +291,7 @@ class _IsolatorCheckScreenState extends State<IsolatorCheckScreen> {
     if (_state == IsolatorState.capturing) {
       return CameraViewfinder(
         aspectRatio: 4 / 3,
+        onControllerCreated: (controller) => _cameraController = controller,
         fallbackBuilder: (context) {
           return Container(
             color: Colors.black.withOpacity(0.9),

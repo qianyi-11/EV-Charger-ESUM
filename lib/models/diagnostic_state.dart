@@ -50,6 +50,18 @@ class DiagnosticState extends ChangeNotifier {
   // Branch Selection
   int selectedBranch = 2; // Default to Red Light (Branch 2). 1 = No Light (Branch 1).
 
+  // ML State
+  bool chargerDetected = false;
+  bool lightDetected = false;
+  String lightColor = "OFF";
+
+  void updateChargerInfo(bool charger, bool light, String color) {
+    chargerDetected = charger;
+    lightDetected = light;
+    lightColor = color;
+    notifyListeners();
+  }
+
   // Power branch state outcomes (injectable for testing)
   bool isIsolatorOn = false;
   bool isEvdbOk = false;
