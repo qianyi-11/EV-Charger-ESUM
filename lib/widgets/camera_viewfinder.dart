@@ -50,10 +50,17 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
       return;
     }
 
-    if (state == AppLifecycleState.inactive) {
+    // Only tear down when the app is fully backgrounded — "inactive" fires during
+    // takePicture and system overlays and was killing the camera mid-scan.
+    if (state == AppLifecycleState.paused) {
       cameraController.dispose();
+      setState(() {
+        _isInitialized = false;
+      });
     } else if (state == AppLifecycleState.resumed) {
-      _initializeCamera();
+      if (!_isInitialized) {
+        _initializeCamera();
+      }
     }
   }
 

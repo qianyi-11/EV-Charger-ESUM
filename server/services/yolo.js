@@ -1,7 +1,7 @@
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { parsePythonJson, runPythonScript } from './python_util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,63 +35,37 @@ export function runYoloInference(imageBuffer) {
         });
       }
 
-      // 3. Spawn PyLauncher 'py' child process
       console.log(`[YOLO Service] Running YOLO inference on: ${tempFilePath}`);
-      const pythonProcess = spawn('py', [SCRIPT_PATH, tempFilePath, MODEL_PATH]);
-
-      let stdoutData = '';
-      let stderrData = '';
-
-      pythonProcess.stdout.on('data', (data) => {
-        stdoutData += data.toString();
-      });
-
-      pythonProcess.stderr.on('data', (data) => {
-        stderrData += data.toString();
-      });
-
-      pythonProcess.on('close', (code) => {
-        // Always clean up the temp file
+      runPythonScript(SCRIPT_PATH, [tempFilePath, MODEL_PATH]).then(({ code, stdoutData, stderrData, python }) => {
         fs.unlink(tempFilePath, (unlinkErr) => {
           if (unlinkErr) console.error('[YOLO Service] Failed to delete temp file:', unlinkErr);
         });
 
-        if (code !== 0) {
-          console.warn(`[YOLO Service] Python process exited with code ${code}. Stderr:`, stderrData);
-          
-          // Let's check if the error is due to ultralytics not installed and fall back
-          if (stderrData.includes('No module named') || stdoutData.includes('ultralytics is not installed')) {
-            console.log('[YOLO Service] Falling back to high-fidelity mock detections due to missing ultralytics package.');
-            return resolve({
-              success: true,
-              mock: true,
-              warning: 'Running in simulated mode. Install ultralytics to execute your physical .pt weights: py -m pip install ultralytics',
-              detections: [
-                { class: 'mcb', confidence: 0.96, box: [120, 200, 320, 450] },
-                { class: 'rccb', confidence: 0.94, box: [340, 200, 540, 450] },
-                { class: 'isolator', confidence: 0.97, box: [560, 250, 700, 400] },
-                { class: 'charger_body', confidence: 0.98, box: [50, 100, 400, 800] }
-              ]
-            });
-          }
-
+        if (stderrData.includes('No module named') || stdoutData.includes('ultralytics is not installed')) {
+          console.log('[YOLO Service] Ultralytics missing — using charger_body mock.');
           return resolve({
-            success: false,
-            error: `Python inference process failed with code ${code}: ${stderrData}`,
-            detections: []
+            success: true,
+            mock: true,
+            warning: 'Running in simulated mode. Install ultralytics for real weights.',
+            detections: [{ class: 'charger_body', confidence: 0.98, box: [50, 100, 400, 800] }],
           });
         }
 
         try {
-          // Parse stdout output as JSON
-          const result = JSON.parse(stdoutData.trim());
-          resolve(result);
+          const result = parsePythonJson(stdoutData);
+          if (result.success === false && result.error?.includes('not found')) {
+            console.warn('[YOLO Service] Model missing:', result.error);
+          }
+          return resolve(result);
         } catch (parseErr) {
-          console.error('[YOLO Service] Failed to parse python output:', parseErr, 'Raw output:', stdoutData);
-          resolve({
+          console.error(`[YOLO Service] JSON parse failed (${python}):`, parseErr.message);
+          if (code !== 0) {
+            console.warn('[YOLO Service] stderr:', stderrData);
+          }
+          return resolve({
             success: false,
-            error: 'Inference script returned malformed JSON output.',
-            detections: []
+            error: parseErr.message || 'Malformed JSON from YOLO script.',
+            detections: [],
           });
         }
       });

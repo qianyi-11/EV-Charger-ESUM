@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
@@ -26,6 +27,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
   double _progressPercent = 0.0;
   Timer? _tickTimer;
   int _elapsedMs = 0;
+  bool _lightSampleInFlight = false;
 
   // Animation Controllers
   late final AnimationController _scannerPulseController;
@@ -70,60 +72,28 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
 
       if (!mounted) return;
       
+      if (kDebugMode) {
+        debugPrint(
+          "[ChargerDetect] gateway charger=${result.chargerDetected} "
+          "light=${result.lightDetected} color=${result.lightColor} "
+          "err=${result.errorMessage}",
+        );
+      }
+
       if (result.success && result.chargerDetected) {
+        if (result.lightDetected && _isRedOrFlicker(result.lightColor)) {
+          setState(() => _phase = DetectionPhase.chargerFound);
+          _completeBranch2(result.lightColor);
+          return;
+        }
+
         setState(() {
           _phase = DetectionPhase.chargerFound;
         });
 
         Timer(const Duration(seconds: 1), () {
           if (!mounted) return;
-          
-          setState(() {
-            _phase = DetectionPhase.searchingLight;
-            _searchTimer = 0.0;
-            _progressPercent = 0.0;
-            _elapsedMs = 0;
-          });
-
-          // Simulate a short scanning delay before evaluating the result
-          _tickTimer?.cancel();
-          _tickTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-            _elapsedMs += 100;
-            setState(() {
-              _searchTimer = _elapsedMs / 1000;
-              _progressPercent = (_searchTimer / 3.0).clamp(0.0, 1.0);
-            });
-
-            if (_searchTimer >= 3.0) {
-              _tickTimer?.cancel();
-              
-              if (result.lightDetected && (result.lightColor == "RED" || result.lightColor == "FLICKER")) {
-                // Branch 2: Light Detected (Red or Blink)
-                _state.updateChargerInfo(true, true, result.lightColor); // Save to global state
-                setState(() {
-                  _phase = DetectionPhase.branch2RedLight;
-                });
-
-                Timer(const Duration(milliseconds: 1500), () {
-                  if (mounted) {
-                    Navigator.pushReplacementNamed(context, "/video-recording"); // Branch 2
-                  }
-                });
-              } else {
-                // Branch 1: No Light Detected
-                _state.updateChargerInfo(true, false, "OFF");
-                setState(() {
-                  _phase = DetectionPhase.branch1NoLight;
-                });
-
-                Timer(const Duration(milliseconds: 2000), () {
-                  if (mounted) {
-                    Navigator.pushReplacementNamed(context, "/isolator-detection"); // Branch 1
-                  }
-                });
-              }
-            }
-          });
+          _startRedLightSearch();
         });
       } else {
         // Retry if charger not found
@@ -133,6 +103,108 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
       // Fallback or error handling
       Timer(const Duration(seconds: 2), _runDetectionSequence);
     }
+  }
+
+  bool _isRedOrFlicker(String color) {
+    final normalized = color.toUpperCase();
+    return normalized == "RED" || normalized == "FLICKER";
+  }
+
+  void _startRedLightSearch() {
+    _tickTimer?.cancel();
+    _lightSampleInFlight = false;
+    setState(() {
+      _phase = DetectionPhase.searchingLight;
+      _searchTimer = 0.0;
+      _progressPercent = 0.0;
+      _elapsedMs = 0;
+    });
+
+    final mlService = MlModelService();
+
+    // Sample first frame immediately, then every 900ms (rapid takePicture kills the camera on Xiaomi)
+    _sampleRedLight(mlService);
+
+    _tickTimer = Timer.periodic(const Duration(milliseconds: 900), (timer) {
+      _elapsedMs += 900;
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        _searchTimer = _elapsedMs / 1000;
+        _progressPercent = (_searchTimer / 3.0).clamp(0.0, 1.0);
+      });
+
+      if (!_lightSampleInFlight) {
+        _sampleRedLight(mlService, onRed: () => timer.cancel());
+      }
+
+      if (_searchTimer >= 3.0) {
+        timer.cancel();
+        if (mounted && _phase == DetectionPhase.searchingLight) {
+          _completeBranch1();
+        }
+      }
+    });
+  }
+
+  Future<void> _sampleRedLight(MlModelService mlService, {VoidCallback? onRed}) async {
+    if (_lightSampleInFlight ||
+        _cameraController == null ||
+        !_cameraController!.value.isInitialized) {
+      return;
+    }
+
+    _lightSampleInFlight = true;
+    try {
+      final frame = await _cameraController!.takePicture();
+      final lightResult = await mlService.processChargerRedLight(frame);
+      if (!mounted) return;
+
+      if (kDebugMode) {
+        debugPrint(
+          "[ChargerDetect] red poll light=${lightResult.lightDetected} "
+          "color=${lightResult.lightColor}",
+        );
+      }
+
+      if (lightResult.lightDetected && _isRedOrFlicker(lightResult.lightColor)) {
+        onRed?.call();
+        _completeBranch2(lightResult.lightColor);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint("[ChargerDetect] red poll error: $e");
+      }
+    } finally {
+      _lightSampleInFlight = false;
+    }
+  }
+
+  void _completeBranch2(String lightColor) {
+    _state.updateChargerInfo(true, true, lightColor);
+    setState(() {
+      _phase = DetectionPhase.branch2RedLight;
+    });
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, "/video-recording");
+      }
+    });
+  }
+
+  void _completeBranch1() {
+    _state.updateChargerInfo(true, false, "OFF");
+    setState(() {
+      _phase = DetectionPhase.branch1NoLight;
+    });
+    Timer(const Duration(milliseconds: 2000), () {
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, "/isolator-detection");
+      }
+    });
   }
 
   void _changeSimulatedBranch(int branchId) {

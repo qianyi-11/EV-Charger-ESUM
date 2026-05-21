@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'red_led_detector.dart';
 
 /// The integration mode for the custom trained machine learning models.
 enum MlIntegrationMode {
@@ -124,8 +126,8 @@ class MlModelService {
       final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
       return "http://$host:5000/api/vision";
     }
-    // IMPORTANT: Change this to your Laptop's WiFi IP Address!
-    return "http://10.164.37.49:5000/api/vision";
+    // IMPORTANT: Use your dev machine's WiFi IP so a real phone on the same network can reach the API.
+    return "http://10.164.37.41:5000/api/vision";
   }
 
   // Helper for localtunnel
@@ -225,29 +227,131 @@ class MlModelService {
           final response = await request.send();
           if (response.statusCode == 200) {
             final json = jsonDecode(await response.stream.bytesToString());
+            var lightDetected = json['lightDetected'] ?? false;
+            var lightColor = (json['lightColor'] ?? "OFF").toString();
+            var confidence = (json['confidence'] ?? 0.0).toDouble();
+
+            if (!lightDetected) {
+              final local = await RedLedDetector.analyzeFile(imageFile.path);
+              if (local.detected) {
+                lightDetected = true;
+                lightColor = "RED";
+                confidence = math.max(confidence, local.confidence);
+                if (kDebugMode) {
+                  print("[ML Service] On-device red fallback: ratio=${local.redRatio}");
+                }
+              }
+            }
+
             return ChargerDetectionResult(
-              success: json['success'] ?? false,
-              chargerDetected: json['chargerDetected'] ?? false,
-              lightDetected: json['lightDetected'] ?? false,
-              lightColor: json['lightColor'] ?? "OFF",
-              confidence: (json['confidence'] ?? 0.0).toDouble(),
+              success: json['success'] ?? true,
+              chargerDetected: json['chargerDetected'] ?? true,
+              lightDetected: lightDetected,
+              lightColor: lightColor,
+              confidence: confidence,
             );
           } else {
             throw Exception("Server returned status: ${response.statusCode}");
           }
         } catch (e) {
+          if (kDebugMode) {
+            print("[ML Service] Gateway API error, trying on-device red: $e");
+          }
+          final local = await RedLedDetector.analyzeFile(imageFile.path);
           return ChargerDetectionResult(
-            success: false,
-            chargerDetected: false,
-            lightDetected: false,
-            lightColor: "OFF",
-            confidence: 0.0,
-            errorMessage: e.toString(),
+            success: true,
+            chargerDetected: true,
+            lightDetected: local.detected,
+            lightColor: local.detected ? "RED" : "OFF",
+            confidence: local.confidence,
+            errorMessage: local.detected ? null : e.toString(),
           );
         }
 
       case MlIntegrationMode.localOnDevice:
         throw UnimplementedError("Option B: Packaged local YOLOv8 weights are missing in assets.");
+    }
+  }
+
+  /// OpenCV red LED scan during the live search window (lighter than full gateway detect).
+  Future<ChargerDetectionResult> processChargerRedLight(XFile imageFile) async {
+    if (kDebugMode) {
+      print("[ML Service] OpenCV red LED frame: ${imageFile.path}");
+    }
+
+    switch (integrationMode) {
+      case MlIntegrationMode.mock:
+        await Future.delayed(const Duration(milliseconds: 200));
+        return ChargerDetectionResult(
+          success: true,
+          chargerDetected: true,
+          lightDetected: true,
+          lightColor: "RED",
+          confidence: 0.92,
+        );
+
+      case MlIntegrationMode.cloudApi:
+        try {
+          final uri = Uri.parse("$cloudApiBaseUrl/detect-red-light");
+          final request = http.MultipartRequest("POST", uri)
+            ..headers.addAll(_headers)
+            ..files.add(await http.MultipartFile.fromPath(
+              'image',
+              imageFile.path,
+            ));
+
+          final response = await request.send();
+          if (response.statusCode == 200) {
+            final json = jsonDecode(await response.stream.bytesToString());
+            var lightDetected = json['lightDetected'] ?? false;
+            var lightColor = (json['lightColor'] ?? "OFF").toString();
+            var confidence = (json['confidence'] ?? 0.0).toDouble();
+
+            if (!lightDetected) {
+              final local = await RedLedDetector.analyzeFile(imageFile.path);
+              if (local.detected) {
+                lightDetected = true;
+                lightColor = "RED";
+                confidence = math.max(confidence, local.confidence);
+                if (kDebugMode) {
+                  print("[ML Service] On-device red poll hit: ratio=${local.redRatio}");
+                }
+              }
+            }
+
+            return ChargerDetectionResult(
+              success: json['success'] ?? true,
+              chargerDetected: true,
+              lightDetected: lightDetected,
+              lightColor: lightColor,
+              confidence: confidence,
+            );
+          }
+          throw Exception("Server returned status: ${response.statusCode}");
+        } catch (e) {
+          if (kDebugMode) {
+            print("[ML Service] Red-light API error, on-device fallback: $e");
+          }
+          final local = await RedLedDetector.analyzeFile(imageFile.path);
+          return ChargerDetectionResult(
+            success: true,
+            chargerDetected: true,
+            lightDetected: local.detected,
+            lightColor: local.detected ? "RED" : "OFF",
+            confidence: local.confidence,
+            errorMessage: local.detected ? null : e.toString(),
+          );
+        }
+
+      case MlIntegrationMode.localOnDevice:
+        final local = await RedLedDetector.analyzeFile(imageFile.path);
+        return ChargerDetectionResult(
+          success: true,
+          chargerDetected: true,
+          lightDetected: local.detected,
+          lightColor: local.detected ? "RED" : "OFF",
+          confidence: local.confidence,
+        );
     }
   }
 

@@ -5,11 +5,11 @@ import {
   checkBlur,
   processOcr,
   analyzeEvdb,
-  detectGateway,
   analyzeIsolator,
   chatAssistant
 } from './services/gemini.js';
 import { runYoloInference } from './services/yolo.js';
+import { runOpenCvRedDetection } from './services/opencv.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -87,27 +87,79 @@ app.post('/api/vision/analyze-evdb', upload.single('image'), async (req, res) =>
 
 /**
  * 4. POST /api/vision/detect-gateway
- * Charger indicators and status LED detection.
+ * YOLO charger body + OpenCV red LED detection.
  */
 app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
     }
-    
-    // Perform hybrid detection: local YOLO + Gemini color inspection
-    console.log('[Express Gateway Route] Initiating hybrid YOLO & Gemini analysis...');
-    const yoloResult = await runYoloInference(req.file.buffer);
-    const geminiResult = await detectGateway(req.file.buffer);
-    
+
+    console.log('[Express Gateway Route] YOLO charger + OpenCV red LED...');
+    const [yoloResult, opencvResult] = await Promise.all([
+      runYoloInference(req.file.buffer),
+      runOpenCvRedDetection(req.file.buffer),
+    ]);
+
+    let chargerDetected = false;
+    if (yoloResult.success && yoloResult.detections?.length) {
+      chargerDetected = yoloResult.detections.some((d) => {
+        const name = (d.class || '').toLowerCase();
+        return name.includes('charger') || name.includes('gateway') || name.includes('body');
+      });
+    }
+
+    // YOLO weights often missing in dev — don't block the LED scan pipeline
+    if (!chargerDetected) {
+      const yoloMissing = yoloResult.error?.includes('not found') || yoloResult.mock;
+      if (yoloMissing || !yoloResult.success) {
+        chargerDetected = true;
+        console.log('[Express Gateway Route] Charger assumed present (YOLO unavailable or no match).');
+      }
+    }
+
+    console.log(
+      `[Express Gateway Route] charger=${chargerDetected} light=${opencvResult.lightDetected} ` +
+      `color=${opencvResult.lightColor}`
+    );
+
     res.json({
-      ...geminiResult,
+      success: true,
+      chargerDetected,
+      lightDetected: opencvResult.lightDetected,
+      lightColor: opencvResult.lightColor,
+      confidence: opencvResult.confidence ?? 0,
       detections: yoloResult.detections || [],
       yoloSuccess: yoloResult.success,
-      warning: yoloResult.warning
+      opencvSuccess: opencvResult.success,
+      opencvMethod: opencvResult.method,
+      warning: opencvResult.warning || yoloResult.warning,
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Gateway LED classification failed' });
+  }
+});
+
+/**
+ * 4b. POST /api/vision/detect-red-light
+ * Fast OpenCV-only poll while the app scans for a red LED.
+ */
+app.post('/api/vision/detect-red-light', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file uploaded' });
+    }
+    const opencvResult = await runOpenCvRedDetection(req.file.buffer);
+    res.json({
+      success: opencvResult.success,
+      lightDetected: opencvResult.lightDetected,
+      lightColor: opencvResult.lightColor,
+      confidence: opencvResult.confidence ?? 0,
+      opencvMethod: opencvResult.method,
+      warning: opencvResult.warning,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Red LED detection failed' });
   }
 });
 
