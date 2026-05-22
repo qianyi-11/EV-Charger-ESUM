@@ -214,7 +214,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
 
   void _changeSimulatedBranch(int branchId) {
     setState(() {
-      _state.setBranch(branchId);
+      _state.setBranch(branchId.toString());
       // Restart sequence to let the user see the animation of the selected branch
       _runDetectionSequence();
     });

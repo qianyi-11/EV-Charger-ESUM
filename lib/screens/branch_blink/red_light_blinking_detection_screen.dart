@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../../theme/app_theme.dart';
 import '../../models/diagnostic_state.dart';
-import '../../widgets/glass_container.dart';
 import '../../services/camera_session_manager.dart';
 
 class RedLightBlinkingDetectionScreen extends StatefulWidget {
@@ -25,14 +23,13 @@ class _RedLightBlinkingDetectionScreenState extends State<RedLightBlinkingDetect
   Size? _previewSize; // Add this to track preview dimensions
   int _frameCount = 0;
   bool _isProcessing = false;
-  bool _isRedOn = false; // Track current red state for transitions
-  DateTime _lastTransition = DateTime.now(); // Track transition timing
+
   
   // ROI Detection
   Offset? _roiCenter;
   bool _roiSet = false;
   static const double roiSize = 60.0;
-  static const double scanSize = 30.0;
+
   static const double roiLineWidth = 2.0;
   
   // Red Light State Tracking

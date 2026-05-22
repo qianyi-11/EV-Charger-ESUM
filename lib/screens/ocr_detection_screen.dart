@@ -31,6 +31,10 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   late final AnimationController _rotationController;
   late final AnimationController _checkmarkController;
   CameraController? _cameraController;
+  
+  // Store extracted OCR data
+  String _extractedModel = 'Unknown';
+  String _extractedSerialNumber = 'Unknown';
 
   @override
   void initState() {
@@ -117,6 +121,9 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
             ));
             setState(() {
               _currentState = OcrState.success;
+              // Store the extracted data for display
+              _extractedModel = result.modelName.isNotEmpty ? result.modelName : 'Unknown';
+              _extractedSerialNumber = result.serialNumber.isNotEmpty ? result.serialNumber : 'Unknown';
             });
             _checkmarkController.forward();
             
@@ -131,6 +138,9 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           } else {
   setState(() {
     _currentState = OcrState.capturing;
+    // Reset extracted data on failure
+    _extractedModel = 'Unknown';
+    _extractedSerialNumber = 'Unknown';
   });
   
   // Determine specific error message
@@ -181,6 +191,9 @@ ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           _rotationController.stop();
           setState(() {
             _currentState = OcrState.success;
+            // Use fallback test data for emulator
+            _extractedModel = "Tesla Wall Connector Gen 3";
+            _extractedSerialNumber = "TWC-2024-A8F3E2";
           });
           _checkmarkController.forward();
           
@@ -500,21 +513,21 @@ ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppColors.glassBorder),
               ),
-              child: const Column(
+              child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("Charger Model:", style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                      Text("Tesla Wall Connector Gen 3", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                      const Text("Charger Model:", style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                      Text(_extractedModel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                     ],
                   ),
-                  SizedBox(height: 8),
+                  const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text("Serial Number:", style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                      Text("TWC-2024-A8F3E2", style: TextStyle(fontFamily: "monospace", fontSize: 13)),
+                      const Text("Serial Number:", style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                      Text(_extractedSerialNumber, style: const TextStyle(fontFamily: "monospace", fontSize: 13)),
                     ],
                   ),
                 ],

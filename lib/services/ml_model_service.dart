@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+
 import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -557,11 +557,11 @@ class MlModelService {
             ));
           
           // Send specs as form fields alongside the image
-          if (state.inputVoltage != null) {
-            request.fields['inputVoltage'] = state.inputVoltage!;
+          if (state.inputVoltage.isNotEmpty) {
+            request.fields['inputVoltage'] = state.inputVoltage;
           }
-          if (state.outputCurrent != null) {
-            request.fields['outputCurrent'] = state.outputCurrent!;
+          if (state.outputCurrent.isNotEmpty) {
+            request.fields['outputCurrent'] = state.outputCurrent;
           }
           
           if (kDebugMode) {

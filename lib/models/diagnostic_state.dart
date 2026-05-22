@@ -1,328 +1,419 @@
-import 'package:flutter/material.dart';
+// diagnostic_state.dart
+// ignore_for_file: avoid_print
 
-enum DiagnosisSeverity { critical, warning, success }
+import 'package:flutter/foundation.dart';
 
+enum DiagnosisSeverity { info, warning, critical }
+ 
 class DiagnosisInfo {
-  final String code;
-  final String name;
-  final String subTitle;
+  final String code;         // Short display code  e.g. "E-PWR"
+  final String name;         // Fault type label    e.g. "Power Cut"
+  final String subTitle;     // One-liner situation description
+  final String description;  // Longer explanation shown in result card
   final DiagnosisSeverity severity;
-  final bool autoContact;
-  final String description;
   final double confidence;
+  final bool autoContact;    // true → route to after-sales team (Team ID: AS-01)
+  final String recipient;    // "customer" | "after-sales"
   final List<String> findings;
   final List<String> immediateActions;
   final List<String> technicalActions;
-
-  DiagnosisInfo({
+ 
+  const DiagnosisInfo({
     required this.code,
     required this.name,
     required this.subTitle,
-    required this.severity,
-    required this.autoContact,
     required this.description,
+    required this.severity,
     required this.confidence,
+    required this.autoContact,
+    required this.recipient,
     required this.findings,
     required this.immediateActions,
     required this.technicalActions,
   });
 }
-
-class DiagnosticState extends ChangeNotifier {
-  // Singleton Pattern
+ 
+class DiagnosticState {
+  // ---------- Singleton ----------
   static final DiagnosticState _instance = DiagnosticState._internal();
   factory DiagnosticState() => _instance;
   DiagnosticState._internal();
-
-  // OCR Spec Data
-  String chargerModel = "Unknown Charger";
-  String serialNumber = "Unknown Serial";
-  bool ocrCompleted = false;
-  
-  // OCR Extracted Specs (from charger label)
-  String? inputVoltage;
-  String? outputCurrent;
-  
-  void saveSpecsFromOcr(Map<String, dynamic> ocrResult) {
-    inputVoltage = ocrResult['inputVoltage'] as String?;
-    outputCurrent = ocrResult['outputCurrent'] as String?;
-    notifyListeners();
-  }
-
-  // Firestore Sync Data
+ 
+  // ---------- Scan Data ----------
+  String chargerModel   = '';
+  String serialNumber   = '';
+  String brand          = '';
+  String inputVoltage   = '';
+  String outputCurrent  = '';
+  bool   ocrCompleted   = false;
+ 
+  String selectedBranch = '';
+  bool   isIsolatorOn   = false;
+  bool   isEvdbOk       = false;
+  int    blinksCounted  = 0;
+  String targetErrorCode = '';
+ 
+  List<Map<String, dynamic>> recentActivity = [];
+ 
   String? savedReportId;
-
-  void setSavedReportId(String? reportId) {
-    savedReportId = reportId;
-    notifyListeners();
+ 
+  void updateOcr(String model, String serial, {
+    String? brandVal,
+    String? voltage,
+    String? current,
+  }) {
+    chargerModel  = model;
+    serialNumber  = serial;
+    brand         = brandVal   ?? brand;
+    inputVoltage  = voltage    ?? inputVoltage;
+    outputCurrent = current    ?? outputCurrent;
+    ocrCompleted  = true;
   }
-
-  // Branch Selection
-  int selectedBranch = 2; // Default to Red Light (Branch 2). 1 = No Light (Branch 1).
-
-  // ML State
-  bool chargerDetected = false;
-  bool lightDetected = false;
-  String lightColor = "OFF";
-
-  void updateChargerInfo(bool charger, bool light, String color) {
-    chargerDetected = charger;
-    lightDetected = light;
-    lightColor = color;
-    notifyListeners();
+ 
+  void setSavedReportId(String id) => savedReportId = id;
+  
+  // ---------- Missing Methods ----------
+  
+  /// Add a diagnostic record to recent activity
+  void addDiagnosticRecord(String errorCode) {
+    recentActivity.add({
+      'timestamp': DateTime.now().toIso8601String(),
+      'errorCode': errorCode,
+    });
   }
-
-  // Power branch state outcomes (injectable for testing)
-  bool isIsolatorOn = false;
-  bool isEvdbOk = false;
-
-  // Blink branch details
-  int blinksCounted = 0;
-  String targetErrorCode = "blink-8";
-
-  // System Configuration / Settings
-  String language = "English";
-  bool darkTheme = true;
-  bool pushNotifications = true;
-  bool offlineSync = true;
-
-  // Diagnostic Records
-  final List<Map<String, dynamic>> recentActivity = [];
-
-  // Static Diagnostic Knowledgebase
-  final Map<String, DiagnosisInfo> database = {
-    "power-cut": DiagnosisInfo(
-      code: "PWR-001",
-      name: "Isolator Switch is OFF",
-      subTitle: "Power Supply Interrupted",
-      severity: DiagnosisSeverity.critical,
-      autoContact: false,
-      description: "The primary power isolation switch is in the OFF position. This has cut off all electrical feed to the vehicle charging system. The EV charger is structurally healthy, but requires direct physical switch reactivation to receive electricity.",
-      confidence: 0.99,
-      findings: [
-        "Isolator switch position visually verified as OFF",
-        "Zero electrical current arriving at EV charger terminals",
-        "External upstream breakers currently report standard status",
-      ],
-      immediateActions: [
-        "Locate the primary isolator lever beside the charger",
-        "Carefully flip the isolator switch toggle to the ON position",
-        "Wait 10 seconds for the charger boot sequence to initialize"
-      ],
-      technicalActions: [
-        "If power does not return, inspect the main distribution board breakers",
-        "Verify 230V mains voltage is present at the input side of the isolator",
-        "Check for mechanical faults in the switch contact terminal blocks"
-      ]
-    ),
-    "protection-issue": DiagnosisInfo(
-      code: "MCB-001",
-      name: "Wrong Board Specification",
-      subTitle: "EVDB Component Anomaly",
-      severity: DiagnosisSeverity.critical,
-      autoContact: true,
-      description: "An incompatible or missing breaker component was detected in the EV Distribution Board (EVDB). Operating the charger under these conditions represents a significant safety hazard, which could lead to fire or severe damage.",
-      confidence: 0.94,
-      findings: [
-        "Incorrect Miniature Circuit Breaker (MCB) capacity rating",
-        "Residual Current Circuit Breaker (RCCB) trip test failed",
-        "Sub-standard gauge copper wire detected during inspection"
-      ],
-      immediateActions: [
-        "A technician has been automatically contacted to replace the components",
-        "DO NOT attempt to reactivate the distribution board breakers",
-        "Keep the isolator switch OFF until the technician arrives on site"
-      ],
-      technicalActions: [
-        "Replace the standard MCB with an approved EV-rated Class A Type-A/B RCCB",
-        "Ensure all wires conform strictly to 32A capacity standard regulations",
-        "Perform full earth loop resistance measurements"
-      ]
-    ),
-    "blink-6": DiagnosisInfo(
-      code: "ERR-006",
-      name: "Termination / Grounding Issue",
-      subTitle: "Earth Connection Missing",
-      severity: DiagnosisSeverity.critical,
-      autoContact: true,
-      description: "The charger has detected a critical grounding fault. The ground path resistance is too high or the grounding conductor is disconnected entirely. Standard electric vehicles will block charging under this condition to prevent high chassis voltages.",
-      confidence: 0.97,
-      findings: [
-        "PE (Protective Earth) terminal block reports open circuit resistance",
-        "Stray neutral-to-earth potential exceeds safe operating threshold (>10V)",
-        "Internal monitoring relay has blocked contactor engagement"
-      ],
-      immediateActions: [
-        "An after-sales maintenance team has been notified and dispatched",
-        "Disconnect the charging vehicle immediately from the holster",
-        "Ensure no active charging sessions are forced via overrides"
-      ],
-      technicalActions: [
-        "Inspect the grounding terminal blocks inside the charger chassis",
-        "Measure ground resistance using a dedicated earth resistance tester",
-        "Verify correct Neutral-Earth configuration at the primary distribution board"
-      ]
-    ),
-    "blink-7": DiagnosisInfo(
-      code: "ERR-007",
-      name: "Emergency Stop Activated",
-      subTitle: "E-Stop Safety Relay Open",
-      severity: DiagnosisSeverity.warning,
-      autoContact: true,
-      description: "The safety system reports that the Emergency Stop Button has been physically depressed. This immediately cuts current to the main supply relays, isolating the charger output. The system will remain locked until manually reset.",
-      confidence: 0.98,
-      findings: [
-        "E-Stop switch auxiliary dry contacts are currently in open position",
-        "Contactor coil is locked out by hardware safety loop",
-        "Manual E-stop lock engaged on side of physical housing"
-      ],
-      immediateActions: [
-        "Technician has been alerted. However, you can attempt manual reset",
-        "Inspect the physical charger for any active hazard or smoke",
-        "Locate the red mushroom E-Stop button on the side panel",
-        "Twist the red button clockwise to pop it back out into ready status"
-      ],
-      technicalActions: [
-        "Verify safety loop continuity using a standard digital multimeter",
-        "Check for stuck micro-switches or mechanical damage behind the E-Stop cap",
-        "Test isolation breaker response to E-stop depress cycles"
-      ]
-    ),
-    "blink-8": DiagnosisInfo(
-      code: "ERR-008",
-      name: "RCCB Fault / Cable Issue",
-      subTitle: "Earth Leakage or Damage Detected",
-      severity: DiagnosisSeverity.critical,
-      autoContact: true,
-      description: "A critical ground fault or leakage current has triggered the internal protective shutdown. This can indicate damage to the charging plug, insulation breakdown in the cable, or moisture inside the coupling head.",
-      confidence: 0.96,
-      findings: [
-        "Ground leakage sensor has registered active fault current (>30mA)",
-        "Insulation resistance check yielded low values (<2M Ohm)",
-        "Cable temperature probes report normal parameters"
-      ],
-      immediateActions: [
-        "Technician has been automatically notified and is reviewing telemetry",
-        "Disconnect the charger plug from the vehicle immediately",
-        "Inspect the physical charging cord for cracks, cuts, or heavy abrasions",
-        "Store the cable securely to prevent moisture entry into plug contacts"
-      ],
-      technicalActions: [
-        "Measure insulation resistance across all line-to-earth conductors",
-        "Replace the primary charging connector cable if physical damage is found",
-        "Verify internal ground leakage monitor board is calibrated"
-      ]
-    ),
-    "blink-9": DiagnosisInfo(
-      code: "ERR-009",
-      name: "System Restart Required",
-      subTitle: "Internal Control Loop Hang",
-      severity: DiagnosisSeverity.warning,
-      autoContact: true,
-      description: "The micro-controller has entered a locked state due to an internal firmware crash, or a transient power brownout. The main safety boards are healthy, but a full system reboot is necessary to clear the state and reload configurations.",
-      confidence: 0.95,
-      findings: [
-        "Control board communication timer has expired (watchdog timeout)",
-        "Mains frequency fluctuation detected during initialization",
-        "Memory allocation fault on controller board"
-      ],
-      immediateActions: [
-        "Technician notified. You can perform a power cycle to resolve",
-        "Locate the main power isolator switch or breaker and flip it OFF",
-        "Wait at least 30 seconds for the internal capacitors to discharge fully",
-        "Flip the switch back ON and monitor the LED indicator boots normally"
-      ],
-      technicalActions: [
-        "Verify supply grid frequency stays within strict 49.5Hz - 50.5Hz range",
-        "Connect technician diagnostic kit to review error stack memory dump",
-        "Flash the latest system firmware (v2.4.2) to mitigate buffer overruns"
-      ]
-    ),
-    "charger-issue": DiagnosisInfo(
-      code: "GEN-001",
-      name: "General Charger Fault",
-      subTitle: "Hardware Component Anomaly",
-      severity: DiagnosisSeverity.warning,
-      autoContact: true,
-      description: "An unclassified telemetry error has occurred. This could be due to internal cooling fan failure, over-temperature, or sensor calibration degradation. Secure maintenance is required.",
-      confidence: 0.90,
-      findings: [
-        "Internal operating temperature registers near maximum threshold (80°C)",
-        "Secondary safety board communications report intermittent packets",
-        "General warning active flag set on control register"
-      ],
-      immediateActions: [
-        "Technician has been auto-contacted to check the charger's hardware",
-        "Ensure charger casing is not blocked by dirt, debris, or shade covers",
-        "Avoid using the charger until system has cooled down and re-assessed"
-      ],
-      technicalActions: [
-        "Verify physical fan operations and intake clearance",
-        "Test safety temperature sensor calibration offsets",
-        "Check internal DC auxiliary power rail voltages"
-      ]
-    ),
-  };
-
-  void updateOcr(String model, String serial) {
-    chargerModel = model;
-    serialNumber = serial;
-    ocrCompleted = true;
-    notifyListeners();
+  
+  /// Update charger detection info
+  void updateChargerInfo(bool detected, bool isRed, String status) {
+    // This method is called during charger detection
+    // Add any charger-specific state updates if needed
   }
-
-  void resetOcr() {
-    chargerModel = "Unknown Charger";
-    serialNumber = "Unknown Serial";
-    ocrCompleted = false;
-    notifyListeners();
-  }
-
-  void setBranch(int branch) {
-    selectedBranch = branch;
-    notifyListeners();
-  }
-
+  
+  /// Set power branch outcomes (isolator and EVDB status)
   void setPowerBranchOutcomes({required bool isolatorOn, required bool evdbOk}) {
     isIsolatorOn = isolatorOn;
     isEvdbOk = evdbOk;
-    notifyListeners();
+  }
+  
+  /// Set selected branch/region
+  void setBranch(String branchId) {
+    selectedBranch = branchId;
+  }
+  
+  /// Save specs extracted from OCR
+  void saveSpecsFromOcr(Map<String, dynamic> specs) {
+    if (specs.containsKey('inputVoltage')) {
+      inputVoltage = specs['inputVoltage'] ?? '';
+    }
+    if (specs.containsKey('outputCurrent')) {
+      outputCurrent = specs['outputCurrent'] ?? '';
+    }
+  }
+  
+  // ---------- Settings State (for home_screen and settings_screen) ----------
+  String language = 'English';
+  bool darkTheme = true;
+  bool pushNotifications = true;
+  
+  void changeLanguage(String newLanguage) {
+    language = newLanguage;
+  }
+  
+  void toggleDarkTheme({bool? newValue}) {
+    if (newValue != null) {
+      darkTheme = newValue;
+    } else {
+      darkTheme = !darkTheme;
+    }
+  }
+  
+  void toggleNotifications({bool? newValue}) {
+    if (newValue != null) {
+      pushNotifications = newValue;
+    } else {
+      pushNotifications = !pushNotifications;
+    }
+  }
+  
+  // Observer pattern for state changes
+  final List<VoidCallback> _listeners = [];
+  
+  void addListener(VoidCallback listener) {
+    _listeners.add(listener);
+  }
+  
+  void removeListener(VoidCallback listener) {
+    _listeners.remove(listener);
   }
 
-  void addDiagnosticRecord(String code) {
-    final info = database[code];
-    if (info == null) return;
-    
-    recentActivity.insert(0, {
-      "description": "${info.name} - Identified on Charger ${chargerModel != "Unknown Charger" ? chargerModel : 'TWC-Gen3'}",
-      "timestamp": "Just Now",
-      "status": info.severity == DiagnosisSeverity.critical
-          ? "critical"
-          : info.severity == DiagnosisSeverity.warning
-              ? "warning"
-              : "success",
-      "code": code,
-    });
-    notifyListeners();
-  }
-
-  void toggleDarkTheme(bool val) {
-    darkTheme = val;
-    notifyListeners();
-  }
-
-  void toggleNotifications(bool val) {
-    pushNotifications = val;
-    notifyListeners();
-  }
-
-  void toggleOfflineSync(bool val) {
-    offlineSync = val;
-    notifyListeners();
-  }
-
-  void changeLanguage(String lang) {
-    language = lang;
-    notifyListeners();
-  }
+  // Error code keys must match what is passed via Navigator arguments.
+  //
+  // Routing logic (per spec):
+  //   recipient == "customer"     → display result to user, no auto-contact
+  //   recipient == "after-sales"  → autoContact = true, route to Team ID: AS-01
+  //
+  final Map<String, DiagnosisInfo> database = const {
+ 
+    // ── POWER CUT ──────────────────────────────────────────────────────────────
+    // Situation : Isolator OFF
+    // Recipient : Customer
+    'power-cut': DiagnosisInfo(
+      code: 'E-PWR',
+      name: 'Power Cut',
+      subTitle: 'Isolator switch is in the OFF position',
+      description:
+          'The EV charger is not receiving power. The rotary isolator switch '
+          'detected in the EVDB panel is currently switched OFF, cutting all '
+          'supply to the charging unit. No electrical faults have been detected '
+          'on the distribution board itself.',
+      severity: DiagnosisSeverity.warning,
+      confidence: 0.96,
+      autoContact: false,
+      recipient: 'customer',
+      findings: [
+        'Rotary isolator switch confirmed in OFF / isolated position.',
+        'No active MCB or RCCB trip events detected on the EVDB.',
+        'Charger status LED is dark — consistent with loss of supply.',
+        'No red-light fault sequence observed prior to power loss.',
+      ],
+      immediateActions: [
+        'Turn the rotary isolator switch to the ON position.',
+        'Check whether any circuit breaker (MCB) inside the EVDB has tripped — '
+            'look for a breaker in an intermediate or OFF position and reset it.',
+        'After switching ON, wait 10 seconds for the charger to boot and '
+            'observe the status LED.',
+      ],
+      technicalActions: [
+        'Verify that supply voltage at isolator input terminals is within '
+            'the rated range stated on the spec plate.',
+        'Inspect isolator switch contacts for signs of arcing or corrosion.',
+        'Confirm MCB/RCCB ratings match the charger specification label.',
+      ],
+    ),
+ 
+    // ── PROTECTION ISSUE ───────────────────────────────────────────────────────
+    // Situation : Missing MCB / RCCB or Wrong Component / Specs
+    // Recipient : After-Sales Team (AS-01)
+    'protection-issue': DiagnosisInfo(
+      code: 'E-PROT',
+      name: 'Protection Issue',
+      subTitle: 'Missing or incorrectly specified breaker detected in EVDB',
+      description:
+          'The EVDB scan has identified a discrepancy between the installed '
+          'protection components and the requirements stated on the charger '
+          'specification plate. This may include a missing MCB or RCCB, an '
+          'incorrect RCCB type (must be Type A), a phase mismatch, or an '
+          'input current rating that does not align with the charger spec. '
+          'Do NOT attempt to operate the charger until this is resolved.',
+      severity: DiagnosisSeverity.critical,
+      confidence: 0.94,
+      autoContact: true,
+      recipient: 'after-sales',
+      findings: [
+        'EVDB component scan detected missing or non-compliant breaker(s).',
+        'RCCB type, phase configuration, or current rating may not match '
+            'the charger specification label requirements.',
+        'Operating with incorrect protection poses a risk of electrical fault '
+            'propagation or fire hazard.',
+        'Issue automatically routed to After-Sales Team (ID: AS-01).',
+      ],
+      immediateActions: [
+        'Do NOT turn on the charger or the isolator switch.',
+        'Do NOT attempt to replace or modify any breaker yourself.',
+        'Keep the area around the EVDB clear.',
+        'Wait for the after-sales technician — your case has been '
+            'automatically submitted to Team AS-01.',
+      ],
+      technicalActions: [
+        'After-Sales Team AS-01 to inspect and replace missing or '
+            'incorrectly rated MCB / RCCB.',
+        'Verify RCCB is Type A (as required for EV charger protection).',
+        'Confirm number of poles and input current rating match spec plate.',
+        'Re-run EVDB compliance scan after replacement.',
+      ],
+    ),
+ 
+    // ── CHARGER ISSUE (0 blinks) ────────────────────────────────────────────────
+    // Situation : Red light detected but 0 blink cycles counted
+    // Recipient : After-Sales Team (AS-01)
+    'charger-issue': DiagnosisInfo(
+      code: 'E-CHG',
+      name: 'Charger Issue',
+      subTitle: 'No blink sequence detected — internal charger fault',
+      description:
+          'The status indicator shows a red light but no blink sequence '
+          'could be counted. This typically indicates a general internal '
+          'hardware fault such as overtemperature, cooling fan failure, or '
+          'a firmware-level error that prevents normal fault-code signalling. '
+          'The issue has been automatically routed to the after-sales team.',
+      severity: DiagnosisSeverity.critical,
+      confidence: 0.88,
+      autoContact: true,
+      recipient: 'after-sales',
+      findings: [
+        'Red status LED detected with 0 countable blink cycles.',
+        'Absence of a blink pattern suggests internal component or firmware fault.',
+        'Possible causes: overtemperature shutdown, cooling fan fault, '
+            'or internal hardware failure.',
+        'Issue automatically routed to After-Sales Team (ID: AS-01).',
+      ],
+      immediateActions: [
+        'Take a screenshot of this result page for your records.',
+        'Do not attempt to reset or open the charger unit.',
+        'Your diagnostic data and screenshot have been submitted to '
+            'Team AS-01 automatically.',
+      ],
+      technicalActions: [
+        'After-Sales Team AS-01 to perform internal hardware inspection.',
+        'Check thermal management system and cooling fan operation.',
+        'Review firmware logs for error flags at last power cycle.',
+      ],
+    ),
+ 
+    // ── BLINK-6 : Installation Issue ───────────────────────────────────────────
+    // Situation : Red light flashes 6 times
+    // Recipient : After-Sales Team (AS-01)
+    'blink-6': DiagnosisInfo(
+      code: 'E-B6',
+      name: 'Installation Issue',
+      subTitle: 'Grounding / PE open-circuit fault (6 blinks)',
+      description:
+          'Six red blink cycles indicate a Protective Earth (PE) open-circuit '
+          'fault. The charger has detected that the earth/ground conductor is '
+          'disconnected or has high impedance. This is a serious installation '
+          'fault. Keep clear of the charger and do not touch it.',
+      severity: DiagnosisSeverity.critical,
+      confidence: 0.95,
+      autoContact: true,
+      recipient: 'after-sales',
+      findings: [
+        '6 red blink cycles confirmed — maps to PE / grounding open-circuit fault.',
+        'Earth conductor may be disconnected, broken, or incorrectly terminated.',
+        'Charger has entered protective shutdown to prevent shock hazard.',
+        'Issue automatically routed to After-Sales Team (ID: AS-01).',
+      ],
+      immediateActions: [
+        'Keep clear of the charger — do not touch the unit or cable.',
+        'Do not attempt to reset or reconnect any wiring.',
+        'Ensure no vehicle is connected to the charger.',
+        'Your case has been submitted to Team AS-01 for urgent attention.',
+      ],
+      technicalActions: [
+        'After-Sales Team AS-01 to inspect earth/PE conductor continuity.',
+        'Verify PE terminal connections at charger, EVDB, and distribution board.',
+        'Test earth loop impedance and ground resistance before re-energising.',
+      ],
+    ),
+ 
+    // ── BLINK-7 : Manual Error ─────────────────────────────────────────────────
+    // Situation : Red light flashes 7 times
+    // Recipient : Customer
+    'blink-7': DiagnosisInfo(
+      code: 'E-B7',
+      name: 'Manual Error',
+      subTitle: 'Emergency Stop (E-Stop) button is engaged (7 blinks)',
+      description:
+          'Seven red blink cycles indicate that the Emergency Stop (E-Stop) '
+          'button has been pressed and is currently latched in the activated '
+          'position. The charger is locked out until the E-Stop is manually '
+          'released by twisting it clockwise.',
+      severity: DiagnosisSeverity.warning,
+      confidence: 0.97,
+      autoContact: false,
+      recipient: 'customer',
+      findings: [
+        '7 red blink cycles confirmed — maps to Emergency Stop button activated.',
+        'Charger is in a safe lockout state; no electrical fault is present.',
+        'E-Stop may have been pressed accidentally or during a previous incident.',
+      ],
+      immediateActions: [
+        'Locate the Emergency Stop (E-Stop) button on the charger unit.',
+        'Twist the E-Stop button clockwise to release / unlock it.',
+        'The button should pop out and return to its normal position.',
+        'Wait 10 seconds for the charger to resume normal operation.',
+        'Observe the status LED — it should return to a normal ready state.',
+      ],
+      technicalActions: [
+        'If the E-Stop was pressed due to an incident, inspect the charger '
+            'and cable for any physical damage before resuming charging.',
+        'If the E-Stop cannot be released or the fault persists after release, '
+            'contact after-sales support.',
+      ],
+    ),
+ 
+    // ── BLINK-8 : Charger Issue (RCCB leakage) ────────────────────────────────
+    // Situation : Red light flashes 8 times
+    // Recipient : After-Sales Team (AS-01)
+    'blink-8': DiagnosisInfo(
+      code: 'E-B8',
+      name: 'Charger Issue',
+      subTitle: 'RCCB earth leakage fault detected (8 blinks)',
+      description:
+          'Eight red blink cycles indicate an RCCB earth leakage fault. '
+          'The residual current device has tripped, detecting an imbalance '
+          'in the supply current that may indicate insulation breakdown, '
+          'moisture ingress, or a damaged charging cable. This issue has '
+          'been automatically routed to the after-sales team.',
+      severity: DiagnosisSeverity.critical,
+      confidence: 0.93,
+      autoContact: true,
+      recipient: 'after-sales',
+      findings: [
+        '8 red blink cycles confirmed — maps to RCCB earth leakage fault.',
+        'RCCB has tripped due to detected residual current imbalance.',
+        'Possible causes: damaged cable insulation, water/moisture ingress, '
+            'or faulty vehicle on-board charger (OBC).',
+        'Issue automatically routed to After-Sales Team (ID: AS-01).',
+      ],
+      immediateActions: [
+        'Unplug the charging cable from the vehicle immediately.',
+        'Do not attempt to reset the RCCB until the fault source is identified.',
+        'Inspect the charging cable visually for cuts, burns, or water damage.',
+        'Your case has been submitted to Team AS-01.',
+      ],
+      technicalActions: [
+        'After-Sales Team AS-01 to perform insulation resistance test on '
+            'cable and charger internals.',
+        'Inspect charger enclosure for moisture or condensation.',
+        'Test with a known-good vehicle to isolate OBC vs charger fault.',
+        'Replace RCCB only after root cause is confirmed.',
+      ],
+    ),
+ 
+    // ── BLINK-9 : Charger Issue (microcontroller hang) ────────────────────────
+    // Situation : Red light flashes 9 times
+    // Recipient : Customer (power cycle advised)
+    'blink-9': DiagnosisInfo(
+      code: 'E-B9',
+      name: 'Charger Issue',
+      subTitle: 'Microcontroller / control loop hang detected (9 blinks)',
+      description:
+          'Nine red blink cycles indicate a microcontroller or control-loop '
+          'hang. The charger firmware has entered an unresponsive state and '
+          'requires a full power cycle to recover. This is often caused by '
+          'a transient power quality event or a firmware edge-case.',
+      severity: DiagnosisSeverity.warning,
+      confidence: 0.91,
+      autoContact: false,
+      recipient: 'customer',
+      findings: [
+        '9 red blink cycles confirmed — maps to microcontroller / firmware hang.',
+        'Charger control loop is unresponsive; normal operation is suspended.',
+        'No permanent hardware damage is expected from this fault type.',
+        'A controlled power cycle typically resolves this condition.',
+      ],
+      immediateActions: [
+        'Unplug the charging cable from the vehicle.',
+        'Turn the rotary isolator switch to the OFF position.',
+        'Wait at least 30 seconds for capacitors to fully discharge.',
+        'Turn the isolator switch back to the ON position.',
+        'Allow 15–20 seconds for the charger to reboot and self-test.',
+        'Reconnect the vehicle and observe the status LED for normal operation.',
+      ],
+      technicalActions: [
+        'If the fault recurs after multiple power cycles, contact after-sales '
+            'support — a firmware update or hardware inspection may be required.',
+        'Log the date and time of each occurrence to help diagnose intermittent issues.',
+      ],
+    ),
+  };
 }
