@@ -6,15 +6,16 @@ import sys
 import json
 
 
-def _analyze_hsv_region(hsv, min_sat=80, min_val=60):
+
+def _analyze_hsv_region(hsv, min_sat=120, min_val=100):  # was min_sat=80, min_val=60
     import cv2
     import numpy as np
 
-    lower_red1 = np.array([0, min_sat, min_val])
-    upper_red1 = np.array([12, 255, 255])
-    lower_red2 = np.array([168, min_sat, min_val])
+    lower_red1 = np.array([0,  min_sat, min_val])
+    upper_red1 = np.array([8,  255, 255])   # was 12 — excludes the hue=8-12 false positives
+    lower_red2 = np.array([172, min_sat, min_val])  # was 168
     upper_red2 = np.array([180, 255, 255])
-
+    
     mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
     mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
     mask = cv2.bitwise_or(mask1, mask2)
@@ -42,7 +43,6 @@ def _detect_red_opencv(image_path):
     h, w = img.shape[:2]
     hsv_full = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-    # LED panel ROI, then full frame if nothing found
     regions = [
         (int(h * 0.10), int(h * 0.60), int(w * 0.20), int(w * 0.80)),
         (0, h, 0, w),
@@ -55,11 +55,15 @@ def _detect_red_opencv(image_path):
         ratio, max_area = _analyze_hsv_region(roi_hsv)
         best_ratio = max(best_ratio, ratio)
         best_area = max(best_area, max_area)
-        if ratio > 0.0008 or max_area >= 35:
+        if ratio > 0.03 or max_area >= 200:  # was 0.0008 / 35 — much stricter early exit
             break
 
-    light_detected = best_ratio > 0.0005 or best_area >= 30
-    confidence = min(0.99, max(best_ratio * 120.0, best_area / 500.0))
+    # Require meaningful red presence — not just noise
+    light_detected = best_ratio > 0.02 or best_area >= 150
+    # was: best_ratio > 0.0005 or best_area >= 30
+
+    confidence = min(0.99, max(best_ratio * 10.0, best_area / 1000.0))
+    # was: ratio * 120 — that inflated confidence from tiny ratios
 
     return {
         "success": True,

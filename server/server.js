@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
+import dotenv from 'dotenv';
 import {
   checkBlur,
   processOcr,
@@ -11,6 +12,9 @@ import {
 import { runYoloInference } from './services/yolo.js';
 import { runOpenCvRedDetection } from './services/opencv.js';
 import { analyzeBlinkingVideo } from './services/blinking_detector.js';
+
+// Load environment variables from .env file
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
