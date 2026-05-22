@@ -9,8 +9,8 @@ import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/ocr_detection_screen.dart';
 import 'screens/charger_detection_screen.dart';
-import 'screens/branch_power/isolator_detection_screen.dart';
-import 'screens/branch_power/evdb_detection_screen.dart';
+import 'screens/branch_power/isolator_check_screen.dart';
+import 'screens/branch_power/evdb_check_screen.dart';
 import 'screens/branch_blink/video_recording_screen.dart';
 import 'screens/report_preview_screen.dart';
 import 'screens/assistant_chat_screen.dart';
@@ -41,8 +41,8 @@ class RexhargeApp extends StatelessWidget {
         '/settings': (context) => const SettingsScreen(),
         '/unified-detection': (context) => const OcrDetectionScreen(),
         '/charger-detection': (context) => const ChargerDetectionScreen(),
-        '/isolator-detection': (context) => const IsolatorDetectionScreen(),
-        '/evdb-detection': (context) => const EvdbDetectionScreen(),
+        '/isolator-detection': (context) => const IsolatorCheckScreen(),
+        '/evdb-detection': (context) => const EvdbCheckScreen(),
         '/video-recording': (context) => const VideoRecordingScreen(),
         '/report': (context) => const ReportPreviewScreen(),
         '/assistant': (context) => const AssistantChatScreen(),

@@ -620,7 +620,7 @@ class _IsolatorCheckScreenState extends State<IsolatorCheckScreen> {
         ),
         const SizedBox(height: 24),
         ElevatedButton(
-          onPressed: () => Navigator.pushNamed(context, "/photo-evdb"),
+          onPressed: () => Navigator.pushNamed(context, "/evdb-detection"),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.electricBlue,
             padding: const EdgeInsets.symmetric(vertical: 16),

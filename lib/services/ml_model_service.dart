@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -250,28 +249,12 @@ class MlModelService {
           final response = await request.send();
           if (response.statusCode == 200) {
             final json = jsonDecode(await response.stream.bytesToString());
-            var lightDetected = json['lightDetected'] ?? false;
-            var lightColor = (json['lightColor'] ?? "OFF").toString();
-            var confidence = (json['confidence'] ?? 0.0).toDouble();
-
-            if (!lightDetected) {
-              final local = await RedLedDetector.analyzeFile(imageFile.path);
-              if (local.detected) {
-                lightDetected = true;
-                lightColor = "RED";
-                confidence = math.max(confidence, local.confidence);
-                if (kDebugMode) {
-                  print("[ML Service] On-device red fallback: ratio=${local.redRatio}");
-                }
-              }
-            }
-
             return ChargerDetectionResult(
               success: json['success'] ?? true,
               chargerDetected: json['chargerDetected'] ?? true,
-              lightDetected: lightDetected,
-              lightColor: lightColor,
-              confidence: confidence,
+              lightDetected: json['lightDetected'] ?? false,
+              lightColor: (json['lightColor'] ?? "OFF").toString(),
+              confidence: (json['confidence'] ?? 0.0).toDouble(),
             );
           } else {
             throw Exception("Server returned status: ${response.statusCode}");
@@ -326,28 +309,12 @@ class MlModelService {
           final response = await request.send();
           if (response.statusCode == 200) {
             final json = jsonDecode(await response.stream.bytesToString());
-            var lightDetected = json['lightDetected'] ?? false;
-            var lightColor = (json['lightColor'] ?? "OFF").toString();
-            var confidence = (json['confidence'] ?? 0.0).toDouble();
-
-            if (!lightDetected) {
-              final local = await RedLedDetector.analyzeFile(imageFile.path);
-              if (local.detected) {
-                lightDetected = true;
-                lightColor = "RED";
-                confidence = math.max(confidence, local.confidence);
-                if (kDebugMode) {
-                  print("[ML Service] On-device red poll hit: ratio=${local.redRatio}");
-                }
-              }
-            }
-
             return ChargerDetectionResult(
               success: json['success'] ?? true,
               chargerDetected: true,
-              lightDetected: lightDetected,
-              lightColor: lightColor,
-              confidence: confidence,
+              lightDetected: json['lightDetected'] ?? false,
+              lightColor: (json['lightColor'] ?? "OFF").toString(),
+              confidence: (json['confidence'] ?? 0.0).toDouble(),
             );
           }
           throw Exception("Server returned status: ${response.statusCode}");
