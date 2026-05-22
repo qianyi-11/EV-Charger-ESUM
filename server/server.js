@@ -227,12 +227,12 @@ app.post('/api/vision/analyze-pulses', upload.single('video'), async (req, res) 
  */
 app.post('/api/chat', async (req, res) => {
   try {
-    const { history, message } = req.body;
+    const { history, message, diagnosticState } = req.body;
     if (!message) {
       return res.status(400).json({ error: 'Message content is required' });
     }
     console.log(`[Express Chat Route] Exchanging technical chat context for prompt: "${message.substring(0, 40)}..."`);
-    const result = await chatAssistant(history, message);
+    const result = await chatAssistant(history, message, diagnosticState);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message || 'Chat assistant consultation failed' });

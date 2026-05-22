@@ -27,12 +27,92 @@ class ReportPreviewScreen extends StatelessWidget {
           }
 
           final firestoreData = snapshot.data;
+          if (firestoreData == null && state.recentActivity.isEmpty) {
+            return _buildEmptyHistoryState(context);
+          }
           return _buildReportContent(context, state, savedId, firestoreData);
         },
       );
     } else {
+      if (state.recentActivity.isEmpty && !state.ocrCompleted) {
+        return _buildEmptyHistoryState(context);
+      }
       return _buildReportContent(context, state, null, null);
     }
+  }
+
+  Widget _buildEmptyHistoryState(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        title: const Text("Diagnostic Report"),
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Center(
+            child: GlassContainer(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.electricBlue.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.history_toggle_off_rounded,
+                      color: AppColors.electricBlue,
+                      size: 48,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    "No Scan History Found",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "You have not completed any AI charger diagnostics or specification scans yet. Please return to the dashboard and perform a scan to generate your detailed diagnostic reports.",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.pushNamed(context, "/unified-detection");
+                    },
+                    icon: const Icon(Icons.camera_alt),
+                    label: const Text("Start Diagnosis Scan"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.electricBlue,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildReportContent(

@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/pulsing_glow.dart';
 import '../services/ml_model_service.dart';
+import '../models/diagnostic_state.dart';
 
 
 class MessageModel {
@@ -65,6 +66,44 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
     _scrollToBottom();
     _inputController.clear();
 
+    // Local pre-check in the knowledge base (case-insensitive & ignoring punctuation)
+    final String trimmedText = text.trim();
+    String? matchedKnowledge;
+
+    // Retrieve active scan status from DiagnosticState
+    final state = DiagnosticState();
+    final bool hasScans = state.recentActivity.isNotEmpty;
+    final String? activeErrorCode = hasScans ? state.recentActivity.first['code'] : null;
+
+    // Only allow static local preset bypass if scan history exists and active error code is exactly blink-8
+    if (hasScans && activeErrorCode == 'blink-8') {
+      for (final entry in _knowledgeBase.entries) {
+        final keyClean = entry.key.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
+        final textClean = trimmedText.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
+        if (keyClean == textClean) {
+          matchedKnowledge = entry.value;
+          break;
+        }
+      }
+    }
+
+    if (matchedKnowledge != null) {
+      // Simulate quick typing delay for a premium fluid experience
+      Future.delayed(const Duration(milliseconds: 700), () {
+        if (!mounted) return;
+        setState(() {
+          _isAiTyping = false;
+          _messages.add(MessageModel(
+            text: matchedKnowledge!,
+            isUser: false,
+            timestamp: DateTime.now(),
+          ));
+        });
+        _scrollToBottom();
+      });
+      return;
+    }
+
     // Map history to server schema format
     final historyJson = _messages
         .take(_messages.length - 1) // Exclude the new user message from history itself
@@ -87,8 +126,9 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
       if (!mounted) return;
       setState(() {
         _isAiTyping = false;
+        // Never bubble up raw connection errors in production UI; use the stable fallback response
         _messages.add(MessageModel(
-          text: "AI Connection Error: ${err.toString()}",
+          text: mlService.fallbackResponse(text),
           isUser: false,
           timestamp: DateTime.now(),
         ));

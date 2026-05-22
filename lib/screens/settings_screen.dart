@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../config/api_config.dart';
 import '../theme/app_theme.dart';
 import '../models/diagnostic_state.dart';
 import '../widgets/glass_container.dart';
+import '../services/server_connectivity_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,16 +14,62 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final DiagnosticState _state = DiagnosticState();
+  final TextEditingController _serverHostController = TextEditingController();
+  bool _serverTesting = false;
+  String? _serverStatusMessage;
 
   @override
   void initState() {
     super.initState();
     _state.addListener(_onStateChanged);
+    _loadServerHost();
+  }
+
+  Future<void> _loadServerHost() async {
+    final host = await ServerConnectivityService.instance.getSavedHost() ??
+        (ApiConfig.buildTimeHost.isNotEmpty
+            ? ApiConfig.buildTimeHost
+            : ApiConfig.defaultDevServerHost);
+    if (!mounted) return;
+    _serverHostController.text = host;
+    setState(() {});
+  }
+
+  Future<void> _saveAndTestServer() async {
+    final host = _serverHostController.text.trim();
+    if (host.isEmpty) {
+      setState(() => _serverStatusMessage = 'Enter your PC\'s Wi‑Fi IP address.');
+      return;
+    }
+
+    setState(() {
+      _serverTesting = true;
+      _serverStatusMessage = 'Testing connection...';
+    });
+
+    final ok = await ServerConnectivityService.instance.testHost(host);
+    if (ok) {
+      await ServerConnectivityService.instance.saveHost(host);
+      if (!mounted) return;
+      setState(() {
+        _serverStatusMessage = 'Connected to $host:${ApiConfig.serverPort}';
+      });
+    } else if (mounted) {
+      setState(() {
+        _serverStatusMessage =
+            'Cannot reach server at $host:${ApiConfig.serverPort}. Start `npm start` in /server on your PC.';
+      });
+    }
+
+    if (mounted) {
+      setState(() => _serverTesting = false);
+    }
   }
 
   @override
   void dispose() {
     _state.removeListener(_onStateChanged);
+    _serverHostController.dispose();
     super.dispose();
   }
 
@@ -88,7 +136,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 28),
 
-              // 4. System Information Section
+              // 4. Dev server (AI chat + vision API)
+              _buildSectionHeader(Icons.dns_outlined, "Dev Server"),
+              const SizedBox(height: 12),
+              GlassContainer(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      "PC IP on same Wi‑Fi",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      "Used for AI chat and vision APIs. Set once — survives app rebuilds.",
+                      style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _serverHostController,
+                      style: const TextStyle(color: Colors.white),
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        hintText: ApiConfig.defaultDevServerHost,
+                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3)),
+                        filled: true,
+                        fillColor: AppColors.tertiaryBg,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    if (_serverStatusMessage != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _serverStatusMessage!,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _serverStatusMessage!.startsWith('Connected')
+                              ? AppColors.successGreen
+                              : AppColors.warningOrange,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: _serverTesting ? null : _saveAndTestServer,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.electricBlue,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: _serverTesting
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            )
+                          : const Text("Save & Test Connection"),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 28),
+
+              // 5. System Information Section
               _buildSectionHeader(Icons.memory, "System Information"),
               const SizedBox(height: 12),
               _buildSystemInfoCard(
@@ -126,7 +237,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 28),
 
-              // 5. App Information Section
+              // 6. App Information Section
               _buildSectionHeader(Icons.info_outline, "App Information"),
               const SizedBox(height: 12),
               _buildNavigationLinkCard("About EVision AI"),
@@ -136,7 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildNavigationLinkCard("Terms of Service"),
               const SizedBox(height: 36),
 
-              // 6. Footer Info
+              // 7. Footer Info
               const Center(
                 child: Column(
                   children: [

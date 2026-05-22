@@ -15,12 +15,14 @@ import 'screens/branch_blink/video_recording_screen.dart';
 import 'screens/report_preview_screen.dart';
 import 'screens/assistant_chat_screen.dart';
 import 'screens/diagnosis_result_screen.dart';
+import 'services/server_connectivity_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await ServerConnectivityService.instance.initialize();
   runApp(const RexhargeApp());
 }
 

@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../theme/app_theme.dart';
+import '../services/camera_session_manager.dart';
 
 class CameraViewfinder extends StatefulWidget {
   final Widget Function(BuildContext)? fallbackBuilder;
   final Widget? overlay;
   final double aspectRatio;
   final Function(CameraController)? onControllerCreated;
+  final bool fillScreen;
+  final bool forVideo;
 
   const CameraViewfinder({
     super.key,
@@ -14,6 +17,8 @@ class CameraViewfinder extends StatefulWidget {
     this.overlay,
     this.aspectRatio = 4 / 3,
     this.onControllerCreated,
+    this.fillScreen = false,
+    this.forVideo = false,
   });
 
   @override
@@ -21,11 +26,11 @@ class CameraViewfinder extends StatefulWidget {
 }
 
 class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBindingObserver {
-  List<CameraDescription> _cameras = [];
   CameraController? _controller;
   bool _isInitialized = false;
   bool _hasError = false;
   String _errorMessage = "";
+  bool _ownsSession = false;
 
   @override
   void initState() {
@@ -37,7 +42,9 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.dispose();
+    if (_ownsSession) {
+      CameraSessionManager.instance.release();
+    }
     super.dispose();
   }
 
@@ -45,18 +52,18 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final CameraController? cameraController = _controller;
 
-    // App state changes (background/foreground) require releasing/re-initializing the camera
     if (cameraController == null || !cameraController.value.isInitialized) {
       return;
     }
 
-    // Only tear down when the app is fully backgrounded — "inactive" fires during
-    // takePicture and system overlays and was killing the camera mid-scan.
     if (state == AppLifecycleState.paused) {
-      cameraController.dispose();
-      setState(() {
-        _isInitialized = false;
-      });
+      CameraSessionManager.instance.forceRelease();
+      if (mounted) {
+        setState(() {
+          _isInitialized = false;
+          _ownsSession = false;
+        });
+      }
     } else if (state == AppLifecycleState.resumed) {
       if (!_isInitialized) {
         _initializeCamera();
@@ -66,26 +73,12 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
 
   Future<void> _initializeCamera() async {
     try {
-      _cameras = await availableCameras();
-      if (_cameras.isEmpty) {
-        setState(() {
-          _hasError = true;
-          _errorMessage = "No camera hardware detected.";
-        });
-        return;
-      }
-
-      final controller = CameraController(
-        _cameras.first,
-        ResolutionPreset.medium,
-        enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
+      final controller = await CameraSessionManager.instance.acquire(
+        forVideo: widget.forVideo,
       );
-
       _controller = controller;
+      _ownsSession = true;
 
-      await controller.initialize();
-      
       if (!mounted) return;
 
       setState(() {
@@ -93,9 +86,7 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
         _hasError = false;
       });
 
-      if (widget.onControllerCreated != null) {
-        widget.onControllerCreated!(controller);
-      }
+      widget.onControllerCreated?.call(controller);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -106,64 +97,85 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_hasError || !_isInitialized || _controller == null) {
-      // Fallback builder (e.g. blueprint animations for web/PC previewing)
-      if (widget.fallbackBuilder != null) {
-        return widget.fallbackBuilder!(context);
-      }
+  Widget _buildOfflineState() {
+    if (widget.fallbackBuilder != null) {
+      return widget.fallbackBuilder!(context);
+    }
 
-      return Container(
-        color: Colors.black.withOpacity(0.85),
-        alignment: Alignment.center,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.electricBlue.withOpacity(0.1),
-                shape: BoxShape.circle,
-                border: Border.all(color: AppColors.electricBlue.withOpacity(0.3)),
-              ),
-              child: const Icon(
-                Icons.videocam_off,
-                color: AppColors.electricBlue,
-                size: 28,
-              ),
+    return Container(
+      color: Colors.black.withOpacity(0.85),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.electricBlue.withOpacity(0.1),
+              shape: BoxShape.circle,
+              border: Border.all(color: AppColors.electricBlue.withOpacity(0.3)),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              "Viewfinder Offline",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+            child: const Icon(
+              Icons.videocam_off,
+              color: AppColors.electricBlue,
+              size: 28,
             ),
-            const SizedBox(height: 8),
-            Text(
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Viewfinder Offline",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Text(
               _errorMessage.isNotEmpty ? _errorMessage : "Initializing video stream...",
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
               textAlign: TextAlign.center,
             ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPreview() {
+    final preview = FittedBox(
+      fit: BoxFit.cover,
+      child: SizedBox(
+        width: _controller!.value.previewSize?.height ?? 1,
+        height: _controller!.value.previewSize?.width ?? 1,
+        child: CameraPreview(_controller!),
+      ),
+    );
+
+    final stack = Stack(
+      fit: StackFit.expand,
+      children: [
+        preview,
+        if (widget.overlay != null) widget.overlay!,
+      ],
+    );
+
+    if (widget.fillScreen) {
+      return stack;
     }
 
     return AspectRatio(
       aspectRatio: widget.aspectRatio,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Active Live Native Camera Stream
-            CameraPreview(_controller!),
-            
-            // Standard crosshair/grid custom drawing inside viewfinder
-            if (widget.overlay != null) widget.overlay!,
-          ],
-        ),
+        child: stack,
       ),
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError || !_isInitialized || _controller == null) {
+      return _buildOfflineState();
+    }
+    return _buildPreview();
   }
 }

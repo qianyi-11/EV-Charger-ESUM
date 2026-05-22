@@ -298,21 +298,57 @@ function buildChatContents(history, message) {
   return contents;
 }
 
-export async function chatAssistant(history, message) {
+export async function chatAssistant(history, message, diagnosticState) {
   if (!ai) {
-    console.log('[Gemini Services] Mocking chatAssistant response...');
+    console.log('[Gemini Services] API Key Missing on Server...');
     return {
       success: true,
-      reply: "I'm running in offline simulated mode. If this were a live deployment, I would query the Gemini-2.5-Flash model directly using your configured API key. Please check your cable connections and ensure the rotary isolator switch is flipped ON."
+      reply: "⚠️ **Gemini API Key Missing on Server**\n\nThe EVision Diagnostics proxy server is running, but the `GEMINI_API_KEY` has not been configured in the server's `.env` file.\n\nTo enable real-time AI responses:\n1. Open the `/server` folder on your computer.\n2. Copy `.env.example` to a new file named `.env`.\n3. Add your Gemini API key (from https://aistudio.google.com/) to the `GEMINI_API_KEY` variable.\n4. Restart the server (`npm start`)."
     };
   }
 
   try {
+    let systemInstruction = ASSISTANT_SYSTEM_INSTRUCTION;
+
+    if (diagnosticState) {
+      const { ocrCompleted, recentActivity, chargerModel, serialNumber, selectedBranch, isIsolatorOn, isEvdbOk, blinksCounted, targetErrorCode } = diagnosticState;
+      const hasNoScans = !ocrCompleted && (!recentActivity || recentActivity.length === 0);
+      const activeError = (recentActivity && recentActivity.length > 0) ? recentActivity[0].code : 'none';
+
+      if (hasNoScans) {
+        systemInstruction += `\n\n--- CRITICAL DYNAMIC DEVICE CONTEXT ---
+⚠️ IMPORTANT: There is NO active scan history or diagnostic data currently available for this charger.
+If the user asks about dangerous conditions, continuing charging, how to fix, or diagnostic status, you MUST politely state:
+"🔌 No Scan History Found. I currently do not see any active diagnostic telemetry or scan history for your charger. Therefore, I cannot determine if there is a safety risk, if it is safe to charge, or how to resolve any issues. Please go back to the Dashboard and tap [Start Diagnosis] to scan your charger status panel or specification plate so that I can provide real-time guidance."
+Do NOT output any simulated RCCB/Error 8 instructions when there is no scan history.`;
+      } else {
+        systemInstruction += `\n\n--- CRITICAL DYNAMIC DEVICE CONTEXT ---
+ACTIVE TELEMETRY CONTEXT:
+- Charger Model: ${chargerModel || 'Unknown Charger'}
+- Serial Number: ${serialNumber || 'Unknown Serial'}
+- Active Diagnosed Fault Code: ${activeError}
+- Current Branch: Branch ${selectedBranch}
+- Isolator Switch State: ${isIsolatorOn ? 'ON' : 'OFF'}
+- EVDB Specification Status: ${isEvdbOk ? 'Incompatible Board/Breaker Detected' : 'Board spec checks passed'}
+- Blinks Counted: ${blinksCounted}
+
+You MUST tailor your diagnostic responses strictly and dynamically to the active fault code: ${activeError}.
+- If active fault code is 'power-cut': Clearly explain that the Isolator Switch is OFF and must be turned ON.
+- If active fault code is 'protection-issue': Explain that the EV Distribution Board (EVDB) breaker capacity/MCB specification is incorrect/wrong board spec. Advise them a technician is auto-contacted, and DO NOT touch the board.
+- If active fault code is 'blink-6': Explain that there is a Grounding/PE open-circuit fault. Advise keeping clear and that a technician is on the way.
+- If active fault code is 'blink-7': Explain that the Emergency Stop (E-Stop) button is pressed. Advise twisting it clockwise to reset.
+- If active fault code is 'blink-8': Explain that there is an RCCB earth leakage fault. Advise unplugging and checking for damage/water.
+- If active fault code is 'blink-9': Explain that there is a microcontroller/control loop hang. Advise power cycling the main isolator switch.
+- If active fault code is 'charger-issue': Explain that a general internal overtemperature or cooling fan hardware fault is active.
+Never output fake RCCB (Error 8) information if the active scanned error code is different.`;
+      }
+    }
+
     const response = await ai.models.generateContent({
       model: CHAT_MODEL,
       contents: buildChatContents(history, message),
       config: {
-        systemInstruction: ASSISTANT_SYSTEM_INSTRUCTION,
+        systemInstruction,
       },
     });
 

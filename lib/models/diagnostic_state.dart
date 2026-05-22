@@ -77,26 +77,7 @@ class DiagnosticState extends ChangeNotifier {
   bool offlineSync = true;
 
   // Diagnostic Records
-  final List<Map<String, dynamic>> recentActivity = [
-    {
-      "description": "Grounding Fault Detected during startup check",
-      "timestamp": "2026-05-20 15:45",
-      "status": "critical",
-      "code": "blink-6"
-    },
-    {
-      "description": "Emergency Stop Triggered manually by user",
-      "timestamp": "2026-05-20 12:10",
-      "status": "warning",
-      "code": "blink-7"
-    },
-    {
-      "description": "Power infrastructure normal, Isolator turned ON",
-      "timestamp": "2026-05-19 09:30",
-      "status": "success",
-      "code": "power-cut"
-    }
-  ];
+  final List<Map<String, dynamic>> recentActivity = [];
 
   // Static Diagnostic Knowledgebase
   final Map<String, DiagnosisInfo> database = {

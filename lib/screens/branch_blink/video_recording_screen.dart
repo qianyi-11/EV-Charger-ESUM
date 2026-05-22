@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../models/diagnostic_state.dart';
 import '../../widgets/camera_viewfinder.dart';
 import '../../services/integration_controller.dart';
+import '../../services/ml_model_service.dart';
 
 enum RecordingPhase { preparing, recording, processing, complete }
 
@@ -18,24 +20,30 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   RecordingPhase _phase = RecordingPhase.preparing;
   double _progress = 0.0;
   Timer? _recordingTimer;
-  
+  CameraController? _cameraController;
+  XFile? _recordedVideo;
+  String? _cameraError;
+
   late AnimationController _pulseController;
-  
-  // Local processing metrics
+
   int _peakCount = 0;
   String _detectedPattern = "";
-  
+
   @override
   void initState() {
     super.initState();
     _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 800))..repeat(reverse: true);
-    
-    // Automatically start recording after brief instruction period
-    Timer(const Duration(seconds: 2), () {
+  }
+
+  void _onCameraReady(CameraController controller) {
+    _cameraController = controller;
+    if (!mounted) return;
+    setState(() => _cameraError = null);
+    Future.delayed(const Duration(seconds: 2), () {
       if (mounted) _startRecording();
     });
   }
-  
+
   @override
   void dispose() {
     _recordingTimer?.cancel();
@@ -43,19 +51,36 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
     super.dispose();
   }
 
-  void _startRecording() {
+  Future<void> _startRecording() async {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      setState(() => _cameraError = 'Camera not ready for recording.');
+      return;
+    }
+
+    try {
+      if (!controller.value.isRecordingVideo) {
+        await controller.startVideoRecording();
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _cameraError = 'Could not start video recording: $e');
+      return;
+    }
+
     setState(() {
       _phase = RecordingPhase.recording;
+      _progress = 0.0;
     });
 
-    // 15-second timer
     const totalMs = 15000;
     const intervalMs = 100;
-    int elapsed = 0;
+    var elapsed = 0;
 
-    _recordingTimer = Timer.periodic(const Duration(milliseconds: intervalMs), (timer) {
+    _recordingTimer?.cancel();
+    _recordingTimer = Timer.periodic(const Duration(milliseconds: intervalMs), (timer) async {
       elapsed += intervalMs;
-      
+
       if (mounted) {
         setState(() {
           _progress = elapsed / totalMs;
@@ -64,60 +89,81 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
 
       if (elapsed >= totalMs) {
         timer.cancel();
-        _processVideo();
+        await _stopRecordingAndProcess();
       }
     });
   }
 
-  void _processVideo() async {
+  Future<void> _stopRecordingAndProcess() async {
+    final controller = _cameraController;
+    if (controller != null && controller.value.isRecordingVideo) {
+      try {
+        _recordedVideo = await controller.stopVideoRecording();
+      } catch (e) {
+        if (mounted) {
+          setState(() => _cameraError = 'Failed to stop recording: $e');
+        }
+      }
+    }
+
+    if (!mounted) return;
     setState(() {
       _phase = RecordingPhase.processing;
     });
-    
-    // Simulate "Difference Map" peak counting process
-    for (int i = 0; i <= 7; i++) {
+
+    final mlService = MlModelService();
+    BlinkDetectionResult blinkResult;
+
+    if (_recordedVideo != null) {
+      blinkResult = await mlService.processBlinkVideo(_recordedVideo!);
+    } else {
+      blinkResult = BlinkDetectionResult(
+        success: false,
+        blinkCount: 0,
+        correlatedErrorCode: 'unknown',
+        confidence: 0.0,
+        errorMessage: _cameraError ?? 'No video captured',
+      );
+    }
+
+    for (var i = 0; i <= 7; i++) {
       await Future.delayed(const Duration(milliseconds: 400));
       if (!mounted) return;
       setState(() {
-        _peakCount = i;
-        if (i == 7) _detectedPattern = "7 blinks \u2192 pause \u2192 7 blinks";
+        _peakCount = blinkResult.success ? blinkResult.blinkCount : i;
+        if (i == 7 && blinkResult.success) {
+          _detectedPattern = '${blinkResult.blinkCount} blinks detected';
+        }
       });
     }
-    
+
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
-    // Use IntegrationController to finalize the diagnostic
     final state = DiagnosticState();
     final integration = IntegrationController();
-    
-    // Mock the state values based on simulated outcome
-    bool isRedLight = state.selectedBranch == 2;
-    int flashCount = state.selectedBranch == 3 ? 7 : 0; // If flicker branch, 7 flashes
-    
+
+    final isRedLight = state.selectedBranch == 2;
+    final flashCount = state.selectedBranch == 3 ? blinkResult.blinkCount : 0;
+
     final decision = await integration.processDiagnosticsAndRoute(
       isChargerDead: false,
       isIsolatorOff: false,
       isMcbMissingOrWrong: false,
       isSolidRedLight: isRedLight,
       flashCount: flashCount,
-      evidenceImage: null, 
+      evidenceImage: null,
     );
-    
+
     setState(() {
       _phase = RecordingPhase.complete;
     });
 
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
-    
-    if (decision.routeToAfterSales) {
-      state.addDiagnosticRecord(decision.errorCode);
-      Navigator.pushReplacementNamed(context, "/diagnosis/${decision.errorCode}");
-    } else {
-      state.addDiagnosticRecord(decision.errorCode);
-      Navigator.pushReplacementNamed(context, "/diagnosis/${decision.errorCode}");
-    }
+
+    state.addDiagnosticRecord(decision.errorCode);
+    Navigator.pushReplacementNamed(context, "/diagnosis/${decision.errorCode}");
   }
 
   @override
@@ -127,17 +173,16 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Feed
           CameraViewfinder(
-            fallbackBuilder: (context) => Container(color: Colors.black87),
-            overlay: const SizedBox.shrink(),
+            fillScreen: true,
+            forVideo: true,
+            onControllerCreated: _onCameraReady,
+            fallbackBuilder: (context) => _buildCameraError(),
           ),
-          
-          // Darken background if processing
+
           if (_phase == RecordingPhase.processing || _phase == RecordingPhase.complete)
             Container(color: Colors.black87),
-            
-          // Target Box Overlay
+
           if (_phase == RecordingPhase.preparing || _phase == RecordingPhase.recording)
             Center(
               child: AnimatedBuilder(
@@ -147,35 +192,27 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                     width: 250,
                     height: 250,
                     decoration: BoxDecoration(
+                      color: Colors.transparent,
                       border: Border.all(
-                        color: _phase == RecordingPhase.recording 
+                        color: _phase == RecordingPhase.recording
                             ? AppColors.dangerRed.withOpacity(0.5 + (_pulseController.value * 0.5))
-                            : AppColors.electricBlue, 
-                        width: 3
+                            : AppColors.electricBlue,
+                        width: 3,
                       ),
                       borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        if (_phase == RecordingPhase.recording)
-                          BoxShadow(
-                            color: AppColors.dangerRed.withOpacity(0.3),
-                            blurRadius: 20 * _pulseController.value,
-                            spreadRadius: 5,
-                          )
-                      ]
                     ),
                     child: Center(
                       child: Icon(
-                        Icons.add, 
-                        color: Colors.white.withOpacity(0.3),
+                        Icons.add,
+                        color: Colors.white.withOpacity(0.25),
                         size: 40,
                       ),
                     ),
                   );
-                }
+                },
               ),
             ),
-            
-          // Instruction Text
+
           if (_phase == RecordingPhase.preparing || _phase == RecordingPhase.recording)
             Positioned(
               top: 80,
@@ -186,19 +223,18 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                 decoration: BoxDecoration(
                   color: Colors.black54,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white24)
+                  border: Border.all(color: Colors.white24),
                 ),
                 child: Text(
-                  _phase == RecordingPhase.preparing 
-                      ? "Preparing to record..."
+                  _phase == RecordingPhase.preparing
+                      ? "Preparing camera..."
                       : "Center the blinking light inside the box and hold still.",
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
             ),
-            
-          // Recording Progress Bar
+
           if (_phase == RecordingPhase.recording)
             Positioned(
               bottom: 80,
@@ -206,20 +242,20 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
               right: 40,
               child: Column(
                 children: [
-                  Row(
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.fiber_manual_record, color: AppColors.dangerRed, size: 16),
-                          const SizedBox(width: 8),
-                          const Text("REC", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          Icon(Icons.fiber_manual_record, color: AppColors.dangerRed, size: 16),
+                          SizedBox(width: 8),
+                          Text("REC", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                         ],
                       ),
                       Text(
                         "15s",
-                        style: TextStyle(color: Colors.white.withOpacity(0.7)),
-                      )
+                        style: TextStyle(color: Colors.white70),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -228,13 +264,12 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                     backgroundColor: Colors.white24,
                     valueColor: const AlwaysStoppedAnimation<Color>(AppColors.dangerRed),
                     minHeight: 8,
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.all(Radius.circular(4)),
                   ),
                 ],
               ),
             ),
-            
-          // Processing Overlay
+
           if (_phase == RecordingPhase.processing || _phase == RecordingPhase.complete)
             Center(
               child: Container(
@@ -245,20 +280,20 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: AppColors.glassBorder),
                   boxShadow: [
-                    BoxShadow(color: AppColors.electricBlue.withOpacity(0.2), blurRadius: 30, spreadRadius: 5)
-                  ]
+                    BoxShadow(color: AppColors.electricBlue.withOpacity(0.2), blurRadius: 30, spreadRadius: 5),
+                  ],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (_phase == RecordingPhase.processing)
                       const SizedBox(
-                        width: 50, height: 50,
+                        width: 50,
+                        height: 50,
                         child: CircularProgressIndicator(color: AppColors.electricBlue, strokeWidth: 3),
                       )
                     else
                       const Icon(Icons.check_circle, color: AppColors.successGreen, size: 50),
-                      
                     const SizedBox(height: 24),
                     const Text(
                       "Local Processing",
@@ -270,13 +305,14 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                       style: TextStyle(color: Colors.white54, fontSize: 14),
                     ),
                     const SizedBox(height: 24),
-                    
-                    // Metrics
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text("Peaks Counted:", style: TextStyle(color: Colors.white70)),
-                        Text("$_peakCount", style: const TextStyle(color: AppColors.electricBlue, fontWeight: FontWeight.bold, fontSize: 18)),
+                        Text(
+                          "$_peakCount",
+                          style: const TextStyle(color: AppColors.electricBlue, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -284,19 +320,45 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text("Pattern:", style: TextStyle(color: Colors.white70)),
-                        Text(_detectedPattern.isEmpty ? "Analyzing..." : _detectedPattern, 
-                            style: TextStyle(
-                              color: _detectedPattern.isEmpty ? Colors.white54 : AppColors.warningOrange, 
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12
-                            )
+                        Text(
+                          _detectedPattern.isEmpty ? "Analyzing..." : _detectedPattern,
+                          style: TextStyle(
+                            color: _detectedPattern.isEmpty ? Colors.white54 : AppColors.warningOrange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
-                    )
+                    ),
                   ],
                 ),
               ),
-            )
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraError() {
+    return Container(
+      color: Colors.black,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.videocam_off, color: AppColors.dangerRed, size: 48),
+          const SizedBox(height: 16),
+          const Text(
+            "Camera unavailable",
+            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _cameraError ?? "Grant camera permission and restart the recording step.",
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
         ],
       ),
     );

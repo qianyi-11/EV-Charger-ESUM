@@ -7,6 +7,7 @@ import '../widgets/glass_container.dart';
 import '../widgets/pulsing_glow.dart';
 import '../widgets/camera_viewfinder.dart';
 import '../services/ml_model_service.dart';
+import '../services/camera_session_manager.dart';
 import 'package:camera/camera.dart';
 
 enum DetectionPhase { scanning, chargerFound, searchingLight, branch1NoLight, branch2RedLight }
@@ -53,6 +54,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
     _tickTimer?.cancel();
     _scannerPulseController.dispose();
     _gearRotationController.dispose();
+    _cameraController = null;
     super.dispose();
   }
 
@@ -184,14 +186,17 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
   }
 
   void _completeBranch2(String lightColor) {
+    _tickTimer?.cancel();
     _state.updateChargerInfo(true, true, lightColor);
     setState(() {
       _phase = DetectionPhase.branch2RedLight;
     });
-    Timer(const Duration(milliseconds: 1500), () {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, "/video-recording");
-      }
+    Timer(const Duration(milliseconds: 1500), () async {
+      if (!mounted) return;
+      _cameraController = null;
+      await CameraSessionManager.instance.forceRelease();
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, "/video-recording");
     });
   }
 

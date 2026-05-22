@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'red_led_detector.dart';
+import 'server_connectivity_service.dart';
+import '../models/diagnostic_state.dart';
 
 /// The integration mode for the custom trained machine learning models.
 enum MlIntegrationMode {
@@ -120,20 +122,18 @@ class MlModelService {
   /// Change this configuration toggle to bind your trained model integration pathway!
   final MlIntegrationMode integrationMode = MlIntegrationMode.cloudApi;
 
-  /// Your Cloud-based ML API base URL (Option A)
+  /// Cloud ML API base URL — always resolved via [ServerConnectivityService].
   String get cloudApiBaseUrl {
     if (kIsWeb) {
       final host = Uri.base.host.isNotEmpty ? Uri.base.host : 'localhost';
       return "http://$host:5000/api/vision";
     }
-    // IMPORTANT: Use your dev machine's WiFi IP so a real phone on the same network can reach the API.
-    return "http://10.168.36.67:5000/api/vision";
+    return ServerConnectivityService.instance.visionBaseUrl;
   }
 
   /// Base URL for non-vision API routes (e.g. /api/chat).
-  String get cloudServerApiBaseUrl {
-    return cloudApiBaseUrl.replaceFirst('/api/vision', '/api');
-  }
+  String get cloudServerApiBaseUrl =>
+      ServerConnectivityService.instance.apiBaseUrl;
 
   List<Map<String, dynamic>> _sanitizeChatHistory(List<Map<String, dynamic>> history) {
     int startIndex = 0;
@@ -556,20 +556,170 @@ class MlModelService {
     }
   }
 
+  /// Stable fallback response that checks both technical knowledge items and normal chatbot inputs offline.
+  String fallbackResponse(String message) {
+    return _mockChatResponse(message);
+  }
+
   String _mockChatResponse(String message) {
-    final normalized = message.toLowerCase();
-    if (normalized.contains('cannot charge') || normalized.contains('not working')) {
-      return '[Symptom]: Vehicle not receiving power.\n[Root Cause]: Ambient system state unknown.\n[Advised Action]: Please check the status indicator lights on the front face of the charger. Is it completely dark (no light), solid red, or blinking red?';
+    final state = DiagnosticState();
+    final normalized = message.toLowerCase().trim().replaceAll(RegExp(r'[^\w\s]'), '');
+
+    // Check if there is no scan history at all
+    final bool hasNoScans = !state.ocrCompleted && state.recentActivity.isEmpty;
+
+    // SCENARIO 1: No Scan History + Contextual/Specific charger questions
+    if (hasNoScans) {
+      // General or specific error code query "What does Error 8 mean?" (Explain generally but warn of empty state)
+      if (normalized.contains('error 8') || normalized.contains('error8')) {
+        return '🔌 **Error 8 (Residual Current Circuit Breaker Fault)**\n\n'
+            'Error 8 indicates an RCCB (Residual Current Circuit Breaker) Fault or charging cable leakage. The charger\'s internal sensors detected current leaking to earth (>30mA), or insulation compromise in the cord, and instantly cut the electrical feed to ensure absolute safety.\n\n'
+            '⚠️ *Note: Since there is no active scan history for your charger, I cannot verify if your device is experiencing this fault. Please run a diagnosis scan first.*';
+      }
+
+      // If they ask about safety, continuing charging, or how to fix their device when there is no scan history:
+      if (normalized.contains('dangerous') || 
+          normalized.contains('continue charging') || 
+          normalized.contains('can customer continue') ||
+          normalized.contains('how to fix') || 
+          normalized.contains('fix this') ||
+          normalized.contains('history') || 
+          normalized.contains('scan') || 
+          normalized.contains('my charger') || 
+          normalized.contains('my device') || 
+          normalized.contains('diagnosis') ||
+          normalized.contains('error') ||
+          normalized.contains('status') ||
+          normalized.contains('report')) {
+        return '🔌 **No Scan History Found**\n\n'
+            'I currently do not see any active diagnostic telemetry or scan history for your charger. Therefore, I cannot determine if there is a safety risk, if it is safe to charge, or how to resolve any issues.\n\n'
+            'To start:\n'
+            '1. Go back to the Dashboard.\n'
+            '2. Tap **Start Diagnosis** to capture your charger\'s status panel or specification plate.\n'
+            '3. Once completed, I will analyze the exact results and guide you with real-time solutions.';
+      }
+
+      // For general unrelated queries when no scans
+      return '🔌 **No Scan History Found**\n\n'
+          'To assist you with custom queries, I need a technical or visual scan of your charger.\n\n'
+          'Please tap **Start Diagnosis** on the Dashboard to scan the charger LED display or specification label. This allows me to perform real-time diagnostic matching without fake or generic information.';
     }
-    if (normalized.contains('no light') || normalized.contains('no power') || normalized.contains('dead')) {
-      return '[Symptom]: Charger display/LEDs are completely unlit.\n[Root Cause]: Upstream power supply interruption.\n[Advised Action]: Inspect the physical Isolator switch near the charger. If it is OFF, safely flip it to ON. If the Isolator is already ON, check your main EVDB for tripped breakers. If the unit remains dark, tap [Start Diagnosis].';
+
+    // SCENARIO 2: Active Scan History exists! Answer dynamically based on the actual scanned code.
+    final String activeCode = state.recentActivity.isNotEmpty ? state.recentActivity.first["code"] ?? "blink-8" : "blink-8";
+
+    // 2.1 Charger Details scenario:
+    if (normalized.contains('what is my charger') || 
+        normalized.contains('my charger model') || 
+        normalized.contains('serial') || 
+        normalized.contains('what did i scan') || 
+        normalized.contains('latest scan') || 
+        normalized.contains('my scan') || 
+        normalized.contains('history')) {
+      final chargerName = state.chargerModel;
+      final sn = state.serialNumber;
+      final latest = state.recentActivity.isNotEmpty ? state.recentActivity.first : null;
+      
+      String response = '📊 **Your Scanned Charger Details**\n\n'
+          '• **Charger Model:** $chargerName\n'
+          '• **Serial Number:** $sn\n';
+      
+      if (latest != null) {
+        response += '• **Latest Diagnostic:** ${latest["description"]} (Code: ${latest["code"]?.toUpperCase()})\n'
+            '• **Scan Date:** ${latest["timestamp"]}\n\n'
+            'Please ask me how to fix this error or if it represents a safety risk!';
+      } else {
+        response += '\nNo active errors have been recorded in the session logs yet.';
+      }
+      return response;
     }
-    return '[Root Cause]: No diagnostic input provided\n[Advised Action]: EVision AI is ready. Tap [Start Diagnosis] to begin charger fault detection. Alternatively, briefly describe your issue (e.g. "red blinking light" or "no power") for guided troubleshooting.';
+
+    // 2.2 Question about Error 8 generally:
+    if (normalized.contains('error 8') || normalized.contains('error8')) {
+      String confirmation = "";
+      if (activeCode == "blink-8") {
+        confirmation = "\n\n✅ *Your active charger scan confirms that your device is experiencing this leakage fault.*";
+      } else {
+        confirmation = "\n\n⚠️ *Note: Your active scan actually reports a **$activeCode** error, not Error 8.*";
+      }
+      return 'Error 8 indicates an RCCB (Residual Current Circuit Breaker) Fault or charging cable leakage. The charger\'s internal sensors detected current leaking to earth (>30mA), or insulation compromise in the cord, and instantly cut the electrical feed to ensure absolute safety.' + confirmation;
+    }
+
+    // 2.3 Danger/Safety Scenarios based on activeCode:
+    if (normalized.contains('dangerous') || normalized.contains('is it safe')) {
+      switch (activeCode) {
+        case 'power-cut':
+          return 'There is no danger. The primary power isolation switch is simply in the OFF position. This cuts all electrical feed to the system. Reactivating it is safe.';
+        case 'protection-issue':
+          return '⚠️ **CRITICAL SAFETY HAZARD**\n\nYes, this is highly dangerous! An incompatible or missing breaker component was detected in the EV Distribution Board (EVDB). Operating the charger under these conditions represents a significant safety hazard (fire risk). **DO NOT** attempt to touch or reactivate the breakers. An after-sales technician has been automatically contacted to resolve this.';
+        case 'blink-6':
+          return '⚠️ **CRITICAL EARTH LOOP FAULT**\n\nYes, a critical grounding fault was detected. Stray neutral-to-earth potential exceeds safe operating thresholds. Operating the charger without proper protective grounding is hazardous. The charging vehicle must be disconnected immediately.';
+        case 'blink-7':
+          return 'There is no immediate danger. The Emergency Stop button has been physically depressed, isolating the charger output. However, please inspect the physical casing for any active hazard or smoke before resetting it.';
+        case 'blink-8':
+          return 'There is no immediate danger. The EVision AI safety relay reacted in milliseconds to isolate the high-voltage lines. However, you should avoid touching the charging plug contacts or vehicle sockets while moisture checks are pending.';
+        case 'blink-9':
+          return 'There is no danger. The micro-controller has entered a locked state due to an internal firmware crash. A simple system reboot is needed.';
+        default:
+          return 'No critical safety hazards are active. The charger is reporting a standard diagnostic state.';
+      }
+    }
+
+    // 2.4 Charging continuity Scenarios based on activeCode:
+    if (normalized.contains('continue charging') || normalized.contains('can customer continue')) {
+      switch (activeCode) {
+        case 'power-cut':
+          return 'No, charging cannot continue because the isolator switch is OFF and power is completely cut to the unit.';
+        case 'protection-issue':
+          return '❌ **CHARGING BLOCKED**\n\nAbsolutely not. Charging is locked out until the distribution board breaker components are replaced by a qualified technician to prevent electrical fire.';
+        case 'blink-6':
+          return '❌ **CHARGING BLOCKED**\n\nNo, charging is blocked by the safety system due to the grounding/earth fault. Disconnect the vehicle immediately.';
+        case 'blink-7':
+          return '❌ **CHARGING BLOCKED**\n\nNo, charging is cut off because the Emergency Stop button is depressed. Twist the red mushroom button clockwise to reset.';
+        case 'blink-8':
+          return 'Charging is locked out until the leakage fault is resolved. The system blocks current delivery to secure the vehicle battery and charger casing. Please keep the charging plug securely locked in the side dock for now.';
+        case 'blink-9':
+          return '❌ **CHARGING BLOCKED**\n\nNo, charging is blocked until the system is rebooted. Toggle the main power isolator OFF for 30 seconds, then back ON.';
+        default:
+          return 'Yes, there are no active safety faults blocking charging. You can proceed with charging normally.';
+      }
+    }
+
+    // 2.5 Repair steps Scenarios based on activeCode:
+    if (normalized.contains('how to fix') || normalized.contains('fix this') || normalized.contains('resolve')) {
+      switch (activeCode) {
+        case 'power-cut':
+          return 'Follow these steps:\n1) Locate the primary isolator switch/lever beside the charger.\n2) Carefully flip the isolator toggle to the ON position.\n3) Wait 10 seconds for the charger boot sequence to initialize.';
+        case 'protection-issue':
+          return '❌ **DO NOT ATTEMPT SELF-REPAIR**\n\n1) Keep the main isolator switch OFF.\n2) Do NOT touch the distribution board breakers.\n3) Wait for the dispatched technician to replace the standard MCB with an approved EV-rated Class A Type-A/B RCCB.';
+        case 'blink-6':
+          return '1) Disconnect the charging vehicle immediately.\n2) Ensure no active charging sessions are forced via overrides.\n3) Wait for the dispatched maintenance team to inspect the grounding terminal blocks and earth conductor continuity.';
+        case 'blink-7':
+          return 'Follow these steps:\n1) Inspect the physical charger for any active hazard or smoke.\n2) Locate the red mushroom Emergency Stop button on the side panel.\n3) Twist the red button clockwise to pop it back out into ready status.';
+        case 'blink-8':
+          return 'Follow these steps: 1) Disconnect the plug from the car. 2) Inspect the cable sheath and connector pin slots for water, dirt, or cuts. 3) Wipe the connector dry if wet. 4) If clear, toggle the main power isolator switch OFF, wait 30 seconds, then toggle back ON. A technician is already dispatched to run insulation diagnostics if the error persists.';
+        case 'blink-9':
+          return 'Follow these steps:\n1) Locate the main power isolator switch or breaker and flip it OFF.\n2) Wait at least 30 seconds for the internal capacitors to discharge fully.\n3) Flip the switch back ON and monitor the LED indicator boots normally.';
+        default:
+          return 'No repairs are needed since there is no active fault. If you are experiencing issues, please run a diagnostics scan.';
+      }
+    }
+
+    // General fallback for unknown custom questions when scans exist
+    return '🔌 **EVision AI Connection Offline**\n\n'
+        'I am currently unable to reach the EVision AI Diagnostics Server to provide a real-time response to your question.\n\n'
+        'To enable real-time AI diagnostics, please check that:\n'
+        '1. The EVision backend proxy server is running (`npm start` inside the `/server` directory).\n'
+        '2. Your phone and host computer are connected to the **same Wi-Fi network**.\n'
+        '3. Your host PC\'s IP address matches the configuration set under **App Settings → Dev Server**.\n\n'
+        '*(Note: Suggested preset questions remain available offline at any time!)*';
   }
 
   Future<String> _chatViaServer(String message, List<Map<String, dynamic>> history) async {
     try {
       final uri = Uri.parse('$cloudServerApiBaseUrl/chat');
+      final state = DiagnosticState();
+      
       final response = await http.post(
         uri,
         headers: {
@@ -579,6 +729,17 @@ class MlModelService {
         body: jsonEncode({
           'message': message,
           'history': history,
+          'diagnosticState': {
+            'ocrCompleted': state.ocrCompleted,
+            'chargerModel': state.chargerModel,
+            'serialNumber': state.serialNumber,
+            'recentActivity': state.recentActivity,
+            'selectedBranch': state.selectedBranch,
+            'isIsolatorOn': state.isIsolatorOn,
+            'isEvdbOk': state.isEvdbOk,
+            'blinksCounted': state.blinksCounted,
+            'targetErrorCode': state.targetErrorCode,
+          }
         }),
       );
 
@@ -594,21 +755,28 @@ class MlModelService {
       final errorBody = response.body.trim();
       throw Exception('Server error ${response.statusCode}${errorBody.isNotEmpty ? ': $errorBody' : ''}');
     } catch (e) {
-      return 'Connection Error: Failed to reach the diagnostic AI server at $cloudServerApiBaseUrl/chat. Start the server in /server and ensure GEMINI_API_KEY is set in server/.env. (${e.toString()})';
+      if (kDebugMode) {
+        print("[ML Service] Chat server connection error: $e. Falling back to local offline response.");
+      }
+      return _mockChatResponse(message);
     }
   }
 
   Future<String> _chatViaGeminiDirect(String message, List<Map<String, dynamic>> history) async {
     const apiKey = String.fromEnvironment('GEMINI_API_KEY');
     if (apiKey.isEmpty) {
-      return 'Connection Error: GEMINI_API_KEY is not configured for direct on-device chat.';
+      if (kDebugMode) {
+        print("[ML Service] Direct Gemini key missing. Falling back to local response.");
+      }
+      return _mockChatResponse(message);
     }
 
     try {
-      final model = GenerativeModel(
-        model: 'gemini-2.5-flash',
-        apiKey: apiKey,
-        systemInstruction: Content.system(r'''You are the Guardrailed AI Assistant for a Smart EV Charger App.
+      final state = DiagnosticState();
+      final bool hasNoScans = !state.ocrCompleted && state.recentActivity.isEmpty;
+      final String activeError = state.recentActivity.isNotEmpty ? state.recentActivity.first['code'] ?? 'unknown' : 'none';
+
+      String systemInstructionText = r'''You are the Guardrailed AI Assistant for a Smart EV Charger App.
 Your goal is to triage user issues dynamically by asking clarifying questions, identifying the specific root cause, and providing structured next actions.
 Your role is to:
 Assist users in identifying EV charger problems
@@ -629,7 +797,42 @@ CRITICAL RULES:
 4. If any protection component is missing or broken, advise the user to not touch it.
 5. Never use emojis, never give generic advice.
 6. Only answer questions related to this app. Politely refuse unrelated questions.
-'''),
+''';
+
+      if (hasNoScans) {
+        systemInstructionText += r'''
+7. IMPORTANT: There is NO active scan history or diagnostic data currently available for this charger.
+If the user asks about dangerous conditions, continuing charging, how to fix, or diagnostic status, you MUST politely state:
+"🔌 No Scan History Found. I currently do not see any active diagnostic telemetry or scan history for your charger. Therefore, I cannot determine if there is a safety risk, if it is safe to charge, or how to resolve any issues. Please go back to the Dashboard and tap [Start Diagnosis] to scan your charger status panel or specification plate so that I can provide real-time guidance."
+Do NOT output any simulated RCCB/Error 8 instructions when there is no scan history.
+''';
+      } else {
+        systemInstructionText += '''
+7. ACTIVE TELEMETRY CONTEXT:
+- Charger Model: ${state.chargerModel}
+- Serial Number: ${state.serialNumber}
+- Active Diagnosed Fault: $activeError
+- Current Branch: Branch ${state.selectedBranch}
+- Isolator Switch State: ${state.isIsolatorOn ? 'ON' : 'OFF'}
+- EVDB Specification Status: ${state.isEvdbOk ? 'Incompatible Board or Breaker Detected' : 'Board spec checks passed'}
+- Blinks Counted: ${state.blinksCounted}
+
+Provide direct, highly accurate responses tailored specifically to this active error:
+- If 'power-cut': Explain that the Isolator Switch is OFF and must be turned ON.
+- If 'protection-issue': Explain that the EV Distribution Board (EVDB) breaker capacity/MCB specification is incorrect/wrong board spec. Advise them a technician is auto-contacted, and DO NOT touch the board.
+- If 'blink-6': Explain that there is a Grounding/PE open-circuit fault. Advise keeping clear and that a technician is on the way.
+- If 'blink-7': Explain that the Emergency Stop (E-Stop) button is pressed. Advise twisting it clockwise to reset.
+- If 'blink-8': Explain that there is an RCCB earth leakage fault. Advise unplugging and checking for damage/water.
+- If 'blink-9': Explain that there is a microcontroller/control loop hang. Advise power cycling the main isolator switch.
+- If 'charger-issue': Explain that a general internal overtemperature or cooling fan hardware fault is active.
+Never output fake RCCB (Error 8) information if the active scanned error code is different.
+''';
+      }
+
+      final model = GenerativeModel(
+        model: 'gemini-2.5-flash',
+        apiKey: apiKey,
+        systemInstruction: Content.system(systemInstructionText),
       );
 
       final chatHistory = <Content>[];
@@ -647,9 +850,12 @@ CRITICAL RULES:
       final response = await chat.sendMessage(Content.text(message));
       return response.text?.trim().isNotEmpty == true
           ? response.text!.trim()
-          : 'Sorry, no response returned from Gemini.';
+          : _mockChatResponse(message);
     } catch (e) {
-      return 'Connection Error: Failed to contact diagnostic AI core backend. (${e.toString()})';
+      if (kDebugMode) {
+        print("[ML Service] Direct Gemini error: $e. Falling back to local response.");
+      }
+      return _mockChatResponse(message);
     }
   }
 }

@@ -86,3 +86,4 @@ server/.env
 *.pt
 build_locked_*
 build_locked_*/
+android/gradle/wrapper/*.zip
