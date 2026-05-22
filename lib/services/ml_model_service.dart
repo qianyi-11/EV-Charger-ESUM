@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -397,6 +399,19 @@ class MlModelService {
       case MlIntegrationMode.cloudApi:
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/analyze-pulses");
+          if (kDebugMode) {
+            print("[ML Service] Upload URL: $uri");
+          }
+          
+          // Get video file size
+          final videoFileInfo = await videoFile.readAsBytes();
+          final fileSizeKb = videoFileInfo.length / 1024;
+          if (kDebugMode) {
+            print("[ML Service] Video file: ${videoFile.path}");
+            print("[ML Service] Video size: ${fileSizeKb.toStringAsFixed(2)} KB");
+            print("[ML Service] Starting multipart upload...");
+          }
+          
           final request = http.MultipartRequest("POST", uri)
             ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
@@ -404,19 +419,47 @@ class MlModelService {
               videoFile.path,
             ));
           
+          if (kDebugMode) {
+            print("[ML Service] Upload request prepared, sending to server...");
+          }
+          
+          final startTime = DateTime.now();
           final response = await request.send();
+          final endTime = DateTime.now();
+          final duration = endTime.difference(startTime);
+          
+          if (kDebugMode) {
+            print("[ML Service] Server response received in ${duration.inMilliseconds}ms");
+            print("[ML Service] HTTP Status: ${response.statusCode}");
+          }
+          
           if (response.statusCode == 200) {
-            final json = jsonDecode(await response.stream.bytesToString());
-            return BlinkDetectionResult(
+            final responseBody = await response.stream.bytesToString();
+            if (kDebugMode) {
+              print("[ML Service] Response body: $responseBody");
+            }
+            
+            final json = jsonDecode(responseBody);
+            final result = BlinkDetectionResult(
               success: json['success'] ?? false,
               blinkCount: json['blinkCount'] ?? 0,
               correlatedErrorCode: json['correlatedErrorCode'] ?? "unknown",
               confidence: (json['confidence'] ?? 0.0).toDouble(),
             );
+            
+            if (kDebugMode) {
+              print("[ML Service] ✅ Blink detection result: count=${result.blinkCount}, confidence=${result.confidence.toStringAsFixed(2)}");
+            }
+            
+            return result;
           } else {
-            throw Exception("Server returned status: ${response.statusCode}");
+            final errorBody = await response.stream.bytesToString();
+            throw Exception("Server returned status: ${response.statusCode}. Body: $errorBody");
           }
         } catch (e) {
+          if (kDebugMode) {
+            print("[ML Service] ❌ Error during video processing: $e");
+          }
           return BlinkDetectionResult(
             success: false,
             blinkCount: 0,

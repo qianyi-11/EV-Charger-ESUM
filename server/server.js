@@ -10,6 +10,7 @@ import {
 } from './services/gemini.js';
 import { runYoloInference } from './services/yolo.js';
 import { runOpenCvRedDetection } from './services/opencv.js';
+import { analyzeBlinkingVideo } from './services/blinking_detector.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -109,13 +110,14 @@ app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) 
       });
     }
 
-    // YOLO weights often missing in dev — don't block the LED scan pipeline
-    if (!chargerDetected) {
-      const yoloMissing = yoloResult.error?.includes('not found') || yoloResult.mock;
-      if (yoloMissing || !yoloResult.success) {
-        chargerDetected = true;
-        console.log('[Express Gateway Route] Charger assumed present (YOLO unavailable or no match).');
-      }
+    // Only assume charger is present in mock/simulation mode (never in production failure)
+    if (!chargerDetected && yoloResult.mock) {
+      chargerDetected = true;
+      console.log('[Express Gateway Route] Charger assumed present (Mock mode enabled).');
+    }
+    
+    if (!chargerDetected && !yoloResult.mock) {
+      console.log('[Express Gateway Route] Charger NOT detected - YOLO analysis failed or no charger in frame.');
     }
 
     console.log(
@@ -201,22 +203,25 @@ app.post('/api/vision/analyze-isolator', upload.single('image'), async (req, res
 
 /**
  * 6. POST /api/vision/analyze-pulses
- * Frame-differencing simulated video pulse count analysis.
+ * Real video pulse count analysis using OpenCV frame extraction
  */
 app.post('/api/vision/analyze-pulses', upload.single('video'), async (req, res) => {
   try {
-    // Standard frequency classification
-    // In developer mock environments, return an 8-pulse error code ("blink-8")
-    // representing a short circuit fault loop.
+    if (!req.file) {
+      return res.status(400).json({ error: 'No video file uploaded' });
+    }
+
     console.log('[Pulse Analyzer] Analyzing captured video segment...');
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const result = await analyzeBlinkingVideo(req.file.buffer);
+    
     res.json({
-      success: true,
-      blinkCount: 8,
-      correlatedErrorCode: 'blink-8',
-      confidence: 0.99,
+      success: result.success,
+      blinkCount: result.blinkCount || 0,
+      correlatedErrorCode: result.correlatedErrorCode || 'analysis-failed',
+      confidence: result.confidence || 0.0,
     });
   } catch (error) {
+    console.error('[Pulse Analyzer] Error:', error);
     res.status(500).json({ error: error.message || 'Pulse sequence analysis failed' });
   }
 });

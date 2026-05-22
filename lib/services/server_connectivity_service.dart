@@ -22,7 +22,9 @@ class ServerConnectivityService {
   bool get isInitialized => _initialized;
 
   Future<void> initialize() async {
-    if (_initialized) return;
+    // Always reinitialize to check for updated server host
+    _initialized = false;
+    _resolvedVisionBaseUrl = null;
     _resolvedVisionBaseUrl = await resolveVisionBaseUrl();
     _initialized = true;
     if (kDebugMode) {
@@ -70,6 +72,20 @@ class ServerConnectivityService {
   }
 
   Future<String> resolveVisionBaseUrl({bool forceRefresh = false}) async {
+    // Always try the default host first (highest priority)
+    if (await _probeHealth(ApiConfig.defaultDevServerHost)) {
+      final url = ApiConfig.hostToVisionBaseUrl(ApiConfig.defaultDevServerHost);
+      _resolvedVisionBaseUrl = url;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(ApiConfig.prefsResolvedUrlKey, url);
+      await prefs.setString(ApiConfig.prefsHostKey, ApiConfig.defaultDevServerHost);
+      if (kDebugMode) {
+        debugPrint('[ServerConnectivity] Using default host: $url');
+      }
+      return url;
+    }
+
+    // Then try cached URL if available
     if (!forceRefresh && _resolvedVisionBaseUrl != null) {
       return _resolvedVisionBaseUrl!;
     }

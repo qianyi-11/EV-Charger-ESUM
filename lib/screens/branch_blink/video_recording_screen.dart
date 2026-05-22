@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
@@ -20,9 +21,12 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   RecordingPhase _phase = RecordingPhase.preparing;
   double _progress = 0.0;
   Timer? _recordingTimer;
+  Timer? _stuckDetectionTimer;
   CameraController? _cameraController;
   XFile? _recordedVideo;
   String? _cameraError;
+  bool _isProcessing = false;
+  bool _isStuck = false;
 
   late AnimationController _pulseController;
 
@@ -33,6 +37,13 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   void initState() {
     super.initState();
     _pulseController = AnimationController(vsync: this, duration: const Duration(milliseconds: 800))..repeat(reverse: true);
+    
+    // Fix 4: Safety net - if stuck for more than 30 seconds, auto-reset
+    _stuckDetectionTimer = Timer(const Duration(seconds: 30), () {
+      if (mounted && _isProcessing) {
+        _handleDetectionFailure('Detection timed out after 30 seconds');
+      }
+    });
   }
 
   void _onCameraReady(CameraController controller) {
@@ -47,6 +58,7 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   @override
   void dispose() {
     _recordingTimer?.cancel();
+    _stuckDetectionTimer?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
@@ -60,6 +72,7 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
 
     try {
       if (!controller.value.isRecordingVideo) {
+        print("[Video Recording] 🔴 Starting 15-second video recording...");
         await controller.startVideoRecording();
       }
     } catch (e) {
@@ -72,6 +85,8 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
       _phase = RecordingPhase.recording;
       _progress = 0.0;
     });
+    
+    print("[Video Recording] ⏱️  Recording started. Will stop after 15 seconds...");
 
     const totalMs = 15000;
     const intervalMs = 100;
@@ -94,6 +109,44 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
     });
   }
 
+  // Fix 2: Handle detection failure gracefully
+  void _handleDetectionFailure(String reason) {
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = false;
+      _isStuck = true;
+      _cameraError = reason;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('⚠️ $reason. Please retry.'),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  // Helper method to reset detection state
+  void _resetDetection() {
+    if (!mounted) return;
+    setState(() {
+      _phase = RecordingPhase.preparing;
+      _progress = 0.0;
+      _isProcessing = false;
+      _isStuck = false;
+      _cameraError = null;
+      _peakCount = 0;
+      _detectedPattern = '';
+    });
+    _stuckDetectionTimer?.cancel();
+    _stuckDetectionTimer = Timer(const Duration(seconds: 30), () {
+      if (mounted && _isProcessing) {
+        _handleDetectionFailure('Detection timed out after 30 seconds');
+      }
+    });
+  }
+
   Future<void> _stopRecordingAndProcess() async {
     final controller = _cameraController;
     if (controller != null && controller.value.isRecordingVideo) {
@@ -107,16 +160,64 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
     }
 
     if (!mounted) return;
+    print("[Video Recording] ✅ Recording stopped. File: ${_recordedVideo?.path}");
+    
     setState(() {
       _phase = RecordingPhase.processing;
+      _isProcessing = true;
     });
 
     final mlService = MlModelService();
     BlinkDetectionResult blinkResult;
 
     if (_recordedVideo != null) {
-      blinkResult = await mlService.processBlinkVideo(_recordedVideo!);
+      print("[Video Recording] 📤 Starting video upload and analysis...");
+      try {
+        // Fix 1: Add timeout to the API call
+        blinkResult = await mlService.processBlinkVideo(_recordedVideo!).timeout(
+          const Duration(seconds: 15),
+          onTimeout: () {
+            _handleDetectionFailure('Server timeout - no response within 15 seconds');
+            return BlinkDetectionResult(
+              success: false,
+              blinkCount: 0,
+              correlatedErrorCode: 'timeout',
+              confidence: 0.0,
+              errorMessage: 'Server timeout',
+            );
+          },
+        );
+      } on SocketException catch (e) {
+        _handleDetectionFailure('No network connection: $e');
+        blinkResult = BlinkDetectionResult(
+          success: false,
+          blinkCount: 0,
+          correlatedErrorCode: 'network_error',
+          confidence: 0.0,
+          errorMessage: 'Network connection failed',
+        );
+      } on TimeoutException catch (e) {
+        _handleDetectionFailure('Server timeout: $e');
+        blinkResult = BlinkDetectionResult(
+          success: false,
+          blinkCount: 0,
+          correlatedErrorCode: 'timeout',
+          confidence: 0.0,
+          errorMessage: 'Server timeout',
+        );
+      } catch (e) {
+        _handleDetectionFailure('Detection failed: $e');
+        blinkResult = BlinkDetectionResult(
+          success: false,
+          blinkCount: 0,
+          correlatedErrorCode: 'unknown',
+          confidence: 0.0,
+          errorMessage: e.toString(),
+        );
+      }
     } else {
+      print("[Video Recording] ❌ No video was recorded!");
+      _handleDetectionFailure('No video was recorded');
       blinkResult = BlinkDetectionResult(
         success: false,
         blinkCount: 0,
@@ -126,12 +227,19 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
       );
     }
 
-    for (var i = 0; i <= 7; i++) {
-      await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    setState(() {
+      _isProcessing = false;
+    });
+
+    print("[Video Recording] 📊 Result received: blinkCount=${blinkResult.blinkCount}, success=${blinkResult.success}");
+
+    for (var i = 0; i <= blinkResult.blinkCount; i++) {
+      await Future.delayed(const Duration(milliseconds: 300));
       if (!mounted) return;
       setState(() {
-        _peakCount = blinkResult.success ? blinkResult.blinkCount : i;
-        if (i == 7 && blinkResult.success) {
+        _peakCount = i;
+        if (i == blinkResult.blinkCount && blinkResult.success) {
           _detectedPattern = '${blinkResult.blinkCount} blinks detected';
         }
       });
@@ -182,6 +290,32 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
 
           if (_phase == RecordingPhase.processing || _phase == RecordingPhase.complete)
             Container(color: Colors.black87),
+          
+          // Fix 3: Show retry button when stuck
+          if (_isStuck && _phase == RecordingPhase.processing)
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error, color: Colors.red, size: 64),
+                  const SizedBox(height: 16),
+                  Text(
+                    _cameraError ?? 'Detection failed',
+                    style: const TextStyle(color: Colors.white, fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _resetDetection,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           if (_phase == RecordingPhase.preparing || _phase == RecordingPhase.recording)
             Center(
