@@ -129,11 +129,25 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
               }
             });
           } else {
-            // Failed to read OCR
-            setState(() {
-              _currentState = OcrState.blurDetected; // or show some error state
-            });
-            Future.delayed(const Duration(seconds: 2), () {
+  setState(() {
+    _currentState = OcrState.capturing;
+  });
+  
+  // Determine specific error message
+  String errorMsg;
+  if (result.isBlurry == true) {
+    errorMsg = "Image is too blurry. Please ensure the plate is clearly in focus.";
+  } else if (result.partialExtraction == true) {
+    errorMsg = "Could not read all plate info clearly. Please retake with better lighting or angle.";
+  } else {
+    errorMsg = "Could not read the plate. Please try again.";
+  }
+  
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    content: Text(errorMsg),
+    duration: const Duration(seconds: 3),
+  ));
+            Future.delayed(const Duration(seconds: 3), () {
               if (mounted) {
                 _startCamera();
               }
@@ -145,9 +159,14 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
         print(stack);
         if (mounted) {
           _rotationController.stop();
-          setState(() {
-            _currentState = OcrState.blurDetected;
-          });
+          // AFTER
+setState(() {
+  _currentState = OcrState.capturing;
+});
+ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+  content: Text("Error: $e. Please try again."),
+  duration: const Duration(seconds: 2),
+));
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted) {
               _startCamera();

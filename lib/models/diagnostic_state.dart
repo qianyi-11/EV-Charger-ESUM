@@ -38,6 +38,16 @@ class DiagnosticState extends ChangeNotifier {
   String chargerModel = "Unknown Charger";
   String serialNumber = "Unknown Serial";
   bool ocrCompleted = false;
+  
+  // OCR Extracted Specs (from charger label)
+  String? inputVoltage;
+  String? outputCurrent;
+  
+  void saveSpecsFromOcr(Map<String, dynamic> ocrResult) {
+    inputVoltage = ocrResult['inputVoltage'] as String?;
+    outputCurrent = ocrResult['outputCurrent'] as String?;
+    notifyListeners();
+  }
 
   // Firestore Sync Data
   String? savedReportId;

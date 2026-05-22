@@ -547,12 +547,27 @@ class MlModelService {
       case MlIntegrationMode.cloudApi:
         try {
           final uri = Uri.parse("$cloudApiBaseUrl/analyze-evdb");
+          final state = DiagnosticState();
+          
           final request = http.MultipartRequest("POST", uri)
             ..headers.addAll(_headers)
             ..files.add(await http.MultipartFile.fromPath(
               'image',
               imageFile.path,
             ));
+          
+          // Send specs as form fields alongside the image
+          if (state.inputVoltage != null) {
+            request.fields['inputVoltage'] = state.inputVoltage!;
+          }
+          if (state.outputCurrent != null) {
+            request.fields['outputCurrent'] = state.outputCurrent!;
+          }
+          
+          if (kDebugMode) {
+            print("[ML Service] EVDB upload with specs: inputVoltage=${state.inputVoltage}, outputCurrent=${state.outputCurrent}");
+          }
+          
           final response = await request.send();
           if (response.statusCode == 200) {
             final json = jsonDecode(await response.stream.bytesToString());

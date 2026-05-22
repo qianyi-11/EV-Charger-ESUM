@@ -51,16 +51,64 @@ app.post('/api/vision/check-blur', upload.single('image'), async (req, res) => {
 /**
  * 2. POST /api/vision/ocr
  * Spec Plate recognition and text parameter extraction.
+ * First checks blur, then processes OCR if image is sharp.
  */
 app.post('/api/vision/ocr', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ error: 'No image file uploaded' });
+      return res.status(400).json({ success: false, error: 'No image file uploaded' });
     }
+
+    // Step 1: Check image sharpness (for info, but don't block OCR)
+    console.log('[OCR Route] Checking image sharpness...');
+    try {
+      const blurResult = await checkBlur(req.file.buffer);
+      if (!blurResult.isSharp) {
+        console.log('[OCR Route] ⚠️ Image may be slightly blurry:', blurResult.reason);
+      } else {
+        console.log('[OCR Route] ✓ Image is sharp');
+      }
+    } catch (err) {
+      console.log('[OCR Route] Blur check skipped (non-blocking):', err.message);
+    }
+
+    // Step 2: Proceed with OCR regardless of blur
+    console.log('[OCR Route] Extracting OCR from image...');
     const result = await processOcr(req.file.buffer);
-    res.json(result);
+    
+    // Check if extraction was successful
+    if (!result.success) {
+      const errorMsg = result.partialExtraction 
+        ? 'Could not extract enough information from the plate. Ensure all text is clearly visible.'
+        : 'Failed to extract plate information.';
+      console.warn(`[OCR Route] Extraction failed: ${errorMsg}`);
+      return res.json({ 
+        success: false, 
+        error: errorMsg,
+        reason: result.reason,
+        isBlurry: false,
+        partialExtraction: result.partialExtraction,
+        brand: result.brand,
+        modelName: result.modelName,
+        serialNumber: result.serialNumber,
+        inputVoltage: result.inputVoltage,
+        outputCurrent: result.outputCurrent
+      });
+    }
+
+    console.log('[OCR Route] ✅ OCR extraction successful');
+    res.json({
+      success: true,
+      ...result,
+      isBlurry: false
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message || 'OCR spec plate analysis failed' });
+    console.error('[OCR Route] Error:', error.message);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'OCR spec plate analysis failed',
+      isBlurry: false 
+    });
   }
 });
 
@@ -74,16 +122,25 @@ app.post('/api/vision/analyze-evdb', upload.single('image'), async (req, res) =>
       return res.status(400).json({ error: 'No image file uploaded' });
     }
     
+    // Extract specs passed from Flutter
+    const specsContext = {
+      inputVoltage: req.body.inputVoltage || null,
+      outputCurrent: req.body.outputCurrent || null,
+    };
+    
+    console.log('[Express DB Route] Specs context received:', specsContext);
+    
     // Perform hybrid detection: local YOLO + Gemini cognitive inspection
     console.log('[Express DB Route] Initiating hybrid YOLO & Gemini analysis...');
     const yoloResult = await runYoloInference(req.file.buffer);
-    const geminiResult = await analyzeEvdb(req.file.buffer);
+    const geminiResult = await analyzeEvdb(req.file.buffer, specsContext);
     
     res.json({
       ...geminiResult,
       detections: yoloResult.detections || [],
       yoloSuccess: yoloResult.success,
-      warning: yoloResult.warning
+      warning: yoloResult.warning,
+      specsUsed: specsContext
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'EVDB compliance evaluation failed' });

@@ -72,7 +72,7 @@ export async function checkBlur(imageBuffer) {
 
 /**
  * 2. SPECIFICATION PLATE OCR
- * Extracts Brand, Model, Serial Number, and Max Power rating.
+ * Extracts Brand, Model, Serial Number, Input Voltage, and Output Current.
  */
 export async function processOcr(imageBuffer) {
   if (!ai) {
@@ -82,8 +82,8 @@ export async function processOcr(imageBuffer) {
       brand: 'Tesla',
       modelName: 'Tesla Wall Connector Gen 3',
       serialNumber: 'TWC-2024-A8F3E2',
-      powerRatingKw: 22.0,
-      confidence: 0.98,
+      inputVoltage: '230V AC',
+      outputCurrent: '32A',
     };
   }
 
@@ -92,31 +92,81 @@ export async function processOcr(imageBuffer) {
       model: VISION_MODEL,
       contents: [
         bufferToGenerativePart(imageBuffer),
-        'You are an expert industrial OCR engine specialized in EV Charging equipment. Extract the manufacturer brand, exact model name, serial number, and maximum power rating in kW from this charger specification label plate.',
+        `You are an OCR engine. Extract ANY text you can read from this specification label plate.
+Try to identify:
+- Any brand or manufacturer name
+- Any model number or model name
+- Any serial number (look for S/N, SN, Serial No, or long alphanumeric strings)
+- Any voltage values (look for V, VAC, VDC)
+- Any current values (look for A, Amps)
+
+Be generous — if you see text that COULD be a serial number or model, extract it.
+Do not return null unless the field is completely absent or unreadable.`,
       ],
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: 'OBJECT',
           properties: {
-            brand: { type: 'STRING', description: 'Manufacturer name (e.g. Tesla, Abb, Wallbox)' },
-            modelName: { type: 'STRING', description: 'Commercial model name' },
-            serialNumber: { type: 'STRING', description: 'Product Serial Number identifier' },
-            powerRatingKw: { type: 'NUMBER', description: 'Max power capacity in kilowatts' },
-            confidence: { type: 'NUMBER', description: 'Confidence level from 0.0 to 1.0' },
+            brand:         { type: 'STRING', description: 'Manufacturer name (e.g. Tesla, ABB, Wallbox)' },
+            modelName:     { type: 'STRING', description: 'Commercial model name' },
+            serialNumber:  { type: 'STRING', description: 'Product serial number' },
+            inputVoltage:  { type: 'STRING', description: 'Input voltage rating (e.g. 230V AC, 400V 3-phase)' },
+            outputCurrent: { type: 'STRING', description: 'Output current in amps (e.g. 32A, 16A)' },
           },
-          required: ['brand', 'modelName', 'serialNumber', 'powerRatingKw', 'confidence'],
+          required: [],
         },
       },
     });
 
     const data = JSON.parse(response.text.trim());
+
+    // Log the extracted specs clearly
+    console.log('[OCR Result] Gemini extraction complete:');
+    console.log(`  Brand:          ${data.brand || '(not extracted)'}`);
+    console.log(`  Model:          ${data.modelName || '(not extracted)'}`);
+    console.log(`  Serial Number:  ${data.serialNumber || '(not extracted)'}`);
+    console.log(`  Input Voltage:  ${data.inputVoltage || '(not extracted)'}`);
+    console.log(`  Output Current: ${data.outputCurrent || '(not extracted)'}`);
+
+    // Count how many fields were successfully extracted (not null/undefined)
+    const extractedCount = [
+      data.brand,
+      data.modelName,
+      data.serialNumber,
+      data.inputVoltage,
+      data.outputCurrent
+    ].filter(field => field != null).length;
+
+    console.log(`  Fields extracted: ${extractedCount}/5`);
+ 
+    const hasKeyFields = data.serialNumber || data.modelName;
+    
+    // Require at least 2 fields
+    if (extractedCount < 2 || !hasKeyFields) {
+  console.warn(`[OCR Result] ⚠️ Missing key fields (need at least model or serial)`);
+  return {
+    success: false,
+        brand: data.brand || 'unknown',
+        modelName: data.modelName || 'unknown',
+        serialNumber: data.serialNumber || 'unknown',
+        inputVoltage: data.inputVoltage || 'unknown',
+        outputCurrent: data.outputCurrent || 'unknown',
+        partialExtraction: true,
+        reason: `Only ${extractedCount} fields readable. Need better image quality.`
+      };
+    }
+
     return {
       success: true,
-      ...data,
+      brand: data.brand || 'unknown',
+      modelName: data.modelName || 'unknown',
+      serialNumber: data.serialNumber || 'unknown',
+      inputVoltage: data.inputVoltage || 'unknown',
+      outputCurrent: data.outputCurrent || 'unknown',
     };
   } catch (error) {
-    console.error('[Gemini API Error] processOcr failed:', error);
+    console.error('[Gemini API Error] processOcr failed:', error.message || error);
     throw error;
   }
 }
@@ -125,7 +175,20 @@ export async function processOcr(imageBuffer) {
  * 3. DISTRIBUTION BOARD COMPLIANCE AUDIT
  * Assesses circuit breaker (MCB / RCCB) ratings and trip conditions.
  */
-export async function analyzeEvdb(imageBuffer) {
+export async function analyzeEvdb(imageBuffer, specsContext = {}) {
+  const { inputVoltage, outputCurrent } = specsContext;
+  
+  const specsPrompt = (inputVoltage || outputCurrent)
+    ? `
+The charger spec label was previously scanned with these values:
+- Input Voltage: ${inputVoltage || 'unknown'}
+- Output Current: ${outputCurrent || 'unknown'}
+
+Compare these against what you read from the EVDB panel.
+Flag any mismatches as compliance issues.
+`
+    : '';
+
   if (!ai) {
     console.log('[Gemini Services] Mocking analyzeEvdb (Breaker Verification)...');
     return {
@@ -143,7 +206,11 @@ export async function analyzeEvdb(imageBuffer) {
       model: VISION_MODEL,
       contents: [
         bufferToGenerativePart(imageBuffer),
-        'You are an electrical inspector AI. Evaluate this Electric Vehicle Distribution Board (EVDB). Extract the current rating in Amps of the main miniature circuit breaker (MCB) and determine the type of Residual Current Device (RCCB). Verify if they comply with the 40A MCB load safety threshold and indicate any tripped or missing breakers.',
+        `You are an electrical inspector AI. Evaluate this Electric Vehicle Distribution Board (EVDB).
+${specsPrompt}
+Extract the current rating in Amps of the main miniature circuit breaker (MCB) and determine the type of Residual Current Device (RCCB). 
+Verify if they comply with the 40A MCB load safety threshold and indicate any tripped or missing breakers.
+Report any discrepancies between charger specs and EVDB configuration.`,
       ],
       config: {
         responseMimeType: 'application/json',
@@ -155,6 +222,7 @@ export async function analyzeEvdb(imageBuffer) {
             detectedRccbRating: { type: 'STRING', description: 'Detected RCCB rating/type' },
             confidence: { type: 'NUMBER', description: 'Confidence score from 0.0 to 1.0' },
             errorMessage: { type: 'STRING', description: 'Detailed warning message if non-compliant, otherwise empty' },
+            specsMatched: { type: 'BOOLEAN', description: 'True if EVDB matches the charger specs (if provided)' },
           },
           required: ['isCompliant', 'detectedMcbRating', 'detectedRccbRating', 'confidence'],
         },
