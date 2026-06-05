@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../models/diagnostic_state.dart';
 import '../../widgets/camera_viewfinder.dart';
-import '../../services/integration_controller.dart';
 import '../../services/ml_model_service.dart';
 
 enum RecordingPhase { preparing, recording, processing, complete }
@@ -147,6 +146,13 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
     });
   }
 
+  /// Maps server codes like blink-7-very-rapid → blink-7 for diagnosis lookup.
+  String _normalizeBlinkErrorCode(String code) {
+    final match = RegExp(r'^blink-(\d+)').firstMatch(code);
+    if (match != null) return 'blink-${match.group(1)}';
+    return code;
+  }
+
   Future<void> _stopRecordingAndProcess() async {
     final controller = _cameraController;
     if (controller != null && controller.value.isRecordingVideo) {
@@ -174,10 +180,14 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
       print("[Video Recording] 📤 Starting video upload and analysis...");
       try {
         // Fix 1: Add timeout to the API call
+        // Video analysis often takes 15–25s; 15s timeout caused UI to show 0
+        // while the server still returned the real count in the background.
         blinkResult = await mlService.processBlinkVideo(_recordedVideo!).timeout(
-          const Duration(seconds: 15),
+          const Duration(seconds: 45),
           onTimeout: () {
-            _handleDetectionFailure('Server timeout - no response within 15 seconds');
+            _handleDetectionFailure(
+              'Server timeout - no response within 45 seconds',
+            );
             return BlinkDetectionResult(
               success: false,
               blinkCount: 0,
@@ -234,34 +244,26 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
 
     print("[Video Recording] 📊 Result received: blinkCount=${blinkResult.blinkCount}, success=${blinkResult.success}");
 
+    if (!blinkResult.success) {
+      _handleDetectionFailure(
+        blinkResult.errorMessage ?? 'Blink detection failed',
+      );
+      return;
+    }
+
+    final state = DiagnosticState();
+    state.blinksCounted = blinkResult.blinkCount;
+
     for (var i = 0; i <= blinkResult.blinkCount; i++) {
       await Future.delayed(const Duration(milliseconds: 300));
       if (!mounted) return;
       setState(() {
         _peakCount = i;
-        if (i == blinkResult.blinkCount && blinkResult.success) {
+        if (i == blinkResult.blinkCount) {
           _detectedPattern = '${blinkResult.blinkCount} blinks detected';
         }
       });
     }
-
-    await Future.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
-
-    final state = DiagnosticState();
-    final integration = IntegrationController();
-
-    final isRedLight = state.selectedBranch == 2;
-    final flashCount = state.selectedBranch == 3 ? blinkResult.blinkCount : 0;
-
-    final decision = await integration.processDiagnosticsAndRoute(
-      isChargerDead: false,
-      isIsolatorOff: false,
-      isMcbMissingOrWrong: false,
-      isSolidRedLight: isRedLight,
-      flashCount: flashCount,
-      evidenceImage: null,
-    );
 
     setState(() {
       _phase = RecordingPhase.complete;
@@ -270,8 +272,10 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
-    state.addDiagnosticRecord(decision.errorCode);
-    Navigator.pushReplacementNamed(context, "/diagnosis/${decision.errorCode}");
+    // Server may return blink-7-very-rapid; diagnosis DB uses blink-7.
+    final errorCode = _normalizeBlinkErrorCode(blinkResult.correlatedErrorCode);
+    state.addDiagnosticRecord(errorCode);
+    Navigator.pushReplacementNamed(context, "/diagnosis/$errorCode");
   }
 
   @override

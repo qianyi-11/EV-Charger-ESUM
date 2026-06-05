@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/diagnostic_state.dart';
 import '../widgets/glass_container.dart';
@@ -35,6 +36,20 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   // Store extracted OCR data
   String _extractedModel = 'Unknown';
   String _extractedSerialNumber = 'Unknown';
+  // Add these state variables:
+  String _extractedBrand = 'Unknown';
+  String _extractedInputVoltage = 'Unknown';
+  String _extractedOutputCurrent = 'Unknown';
+
+  Widget _buildResultRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -88,7 +103,6 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   }
 
   void _triggerBlur() {
-    _stabilityTimer?.cancel();
     setState(() {
       _currentState = OcrState.blurDetected;
     });
@@ -121,34 +135,53 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
             ));
             setState(() {
               _currentState = OcrState.success;
-              // Store the extracted data for display
-              _extractedModel = result.modelName.isNotEmpty ? result.modelName : 'Unknown';
-              _extractedSerialNumber = result.serialNumber.isNotEmpty ? result.serialNumber : 'Unknown';
+              _extractedBrand          = result.brand         ?? 'Unknown';
+              _extractedModel          = result.modelName.isNotEmpty ? result.modelName : 'Unknown';
+              _extractedSerialNumber   = result.serialNumber.isNotEmpty ? result.serialNumber : 'Unknown';
+              _extractedInputVoltage   = result.inputVoltage  ?? 'Unknown';
+              _extractedOutputCurrent  = result.outputCurrent ?? 'Unknown';
             });
             _checkmarkController.forward();
             
             final state = DiagnosticState();
-            state.updateOcr(result.modelName, result.serialNumber);
-
-            Timer(const Duration(seconds: 2), () {
-              if (mounted) {
-                Navigator.pushReplacementNamed(context, "/charger-detection");
-              }
-            });
-          } else {
-  setState(() {
-    _currentState = OcrState.capturing;
-    // Reset extracted data on failure
-    _extractedModel = 'Unknown';
-    _extractedSerialNumber = 'Unknown';
-  });
+            state.updateOcr(
+              result.modelName,
+              result.serialNumber,
+              brandVal: result.brand,
+              voltage:  result.inputVoltage,
+              current:  result.outputCurrent,
+            );
+                        Timer(const Duration(seconds: 2), () {
+                          if (mounted) {
+                            Navigator.pushReplacementNamed(context, "/charger-detection");
+                          }
+                        });
+                      } else {
+              setState(() {
+                _currentState = OcrState.capturing;
+                // Reset extracted data on failure
+                _extractedModel = 'Unknown';
+                _extractedSerialNumber = 'Unknown';
+              });
   
-  // Determine specific error message
-  String errorMsg;
-  if (result.isBlurry == true) {
-    errorMsg = "Image is too blurry. Please ensure the plate is clearly in focus.";
-  } else if (result.partialExtraction == true) {
-    errorMsg = "Could not read all plate info clearly. Please retake with better lighting or angle.";
+  final String errorMsg;
+  if (result.quotaExceeded) {
+    errorMsg = result.reason ??
+        "OCR service quota exceeded. Wait about a minute, then try again.";
+  } else if (result.reason != null && result.reason!.isNotEmpty) {
+    errorMsg = result.reason!;
+  } else if (result.extractedText.startsWith('OCR failed:') ||
+      result.extractedText.startsWith('Server error:')) {
+    errorMsg = result.extractedText.contains('Connection') ||
+            result.extractedText.contains('SocketException')
+        ? "Cannot reach the server. Check Wi‑Fi and that the backend is running on your PC."
+        : result.extractedText;
+  } else if (result.isBlurry) {
+    errorMsg =
+        "Image is too blurry. Please ensure the plate is clearly in focus.";
+  } else if (result.partialExtraction) {
+    errorMsg =
+        "Could not read the model or serial number. Move closer and improve lighting.";
   } else {
     errorMsg = "Could not read the plate. Please try again.";
   }
@@ -198,7 +231,13 @@ ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           _checkmarkController.forward();
           
           final state = DiagnosticState();
-          state.updateOcr("Tesla Wall Connector Gen 3", "TWC-2024-A8F3E2");
+          state.updateOcr(
+          "Tesla Wall Connector Gen 3",
+          "TWC-2024-A8F3E2",
+          brandVal: "Tesla",
+          voltage:  "230V AC",
+          current:  "32A",
+        );
 
           Timer(const Duration(seconds: 2), () {
             if (mounted) {
@@ -485,56 +524,49 @@ ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         );
 
       case OcrState.success:
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+  return Column(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      ScaleTransition(
+        scale: _checkmarkController,
+        child: Container(
+          width: 56, height: 56,
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.successGreen,
+          ),
+          child: const Icon(Icons.check, color: Colors.black, size: 32),
+        ),
+      ),
+      const SizedBox(height: 20),
+      const Text(
+        "Data Extracted Successfully!",
+        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+      ),
+      const SizedBox(height: 16),
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.04),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.glassBorder),
+        ),
+        child: Column(
           children: [
-            ScaleTransition(
-              scale: _checkmarkController,
-              child: Container(
-                width: 56,
-                height: 56,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.successGreen,
-                ),
-                child: const Icon(Icons.check, color: Colors.black, size: 32),
-              ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              "Data Extracted Successfully!",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.04),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.glassBorder),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text("Charger Model:", style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                      Text(_extractedModel, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text("Serial Number:", style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                      Text(_extractedSerialNumber, style: const TextStyle(fontFamily: "monospace", fontSize: 13)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            _buildResultRow("Brand",          _extractedBrand),
+            const SizedBox(height: 8),
+            _buildResultRow("Model",          _extractedModel),
+            const SizedBox(height: 8),
+            _buildResultRow("Serial Number",  _extractedSerialNumber),
+            const SizedBox(height: 8),
+            _buildResultRow("Input Voltage",  _extractedInputVoltage),
+            const SizedBox(height: 8),
+            _buildResultRow("Output Current", _extractedOutputCurrent),
           ],
-        );
+        ),
+      ),
+    ],
+  );
     }
   }
 

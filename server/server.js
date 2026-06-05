@@ -56,59 +56,71 @@ app.post('/api/vision/check-blur', upload.single('image'), async (req, res) => {
 app.post('/api/vision/ocr', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, error: 'No image file uploaded' });
+      return res.status(400).json({ error: 'No image file uploaded' });
     }
 
-    // Step 1: Check image sharpness (for info, but don't block OCR)
-    console.log('[OCR Route] Checking image sharpness...');
-    try {
-      const blurResult = await checkBlur(req.file.buffer);
-      if (!blurResult.isSharp) {
-        console.log('[OCR Route] ⚠️ Image may be slightly blurry:', blurResult.reason);
-      } else {
-        console.log('[OCR Route] ✓ Image is sharp');
+    // Run YOLO + Gemini OCR in parallel
+    const [yoloResult, ocrResult] = await Promise.all([
+      runYoloInference(req.file.buffer),
+      processOcr(req.file.buffer),
+    ]);
+
+    // Extract charger brand from YOLO detections
+    const brandClasses = [
+      'BMW', 'GWM', 'Proton_eMAS', 'Revo', 'Smart',
+      'StarCharge', 'Zeeda_energy', 'iCAUR'
+    ];
+
+    let detectedBrand = null;
+    if (yoloResult.success && yoloResult.detections?.length) {
+      const brandDetection = yoloResult.detections
+        .filter(d => brandClasses.includes(d.class))
+        .sort((a, b) => b.confidence - a.confidence)[0]; // highest confidence
+      
+      if (brandDetection) {
+        detectedBrand = brandDetection.class.replace(/_/g, ' '); // "Zeeda_energy" → "Zeeda energy"
+        console.log(`[OCR Route] YOLO brand detected: ${detectedBrand} (${brandDetection.confidence})`);
       }
-    } catch (err) {
-      console.log('[OCR Route] Blur check skipped (non-blocking):', err.message);
     }
 
-    // Step 2: Proceed with OCR regardless of blur
-    console.log('[OCR Route] Extracting OCR from image...');
-    const result = await processOcr(req.file.buffer);
-    
-    // Check if extraction was successful
-    if (!result.success) {
-      const errorMsg = result.partialExtraction 
-        ? 'Could not extract enough information from the plate. Ensure all text is clearly visible.'
-        : 'Failed to extract plate information.';
-      console.warn(`[OCR Route] Extraction failed: ${errorMsg}`);
-      return res.json({ 
-        success: false, 
-        error: errorMsg,
-        reason: result.reason,
-        isBlurry: false,
-        partialExtraction: result.partialExtraction,
-        brand: result.brand,
-        modelName: result.modelName,
-        serialNumber: result.serialNumber,
-        inputVoltage: result.inputVoltage,
-        outputCurrent: result.outputCurrent
+    // YOLO brand takes priority over Gemini brand
+    const finalBrand = detectedBrand ?? ocrResult.brand ?? 'Unknown';
+
+    console.log('[OCR Result]');
+    console.log(`  Brand:          ${finalBrand} (source: ${detectedBrand ? 'YOLO' : 'Gemini'})`);
+    console.log(`  Model:          ${ocrResult.modelName}`);
+    console.log(`  Serial Number:  ${ocrResult.serialNumber}`);
+    console.log(`  Input Voltage:  ${ocrResult.inputVoltage}`);
+    console.log(`  Output Current: ${ocrResult.outputCurrent}`);
+    console.log(`  Confidence:     ${ocrResult.confidence}`);
+
+    res.json({
+      ...ocrResult,
+      brand: finalBrand,
+      brandSource: detectedBrand ? 'yolo' : 'gemini',
+      yoloDetections: yoloResult.detections,
+    });
+
+  } catch (error) {
+    const message = error?.message || String(error);
+    const quotaExceeded =
+      message.includes('429') ||
+      message.includes('RESOURCE_EXHAUSTED') ||
+      message.toLowerCase().includes('quota');
+    if (quotaExceeded) {
+      return res.status(200).json({
+        success: false,
+        quotaExceeded: true,
+        brand: 'unknown',
+        modelName: 'unknown',
+        serialNumber: 'unknown',
+        inputVoltage: 'unknown',
+        outputCurrent: 'unknown',
+        reason:
+          'Gemini API daily quota exceeded (free tier: 20 requests/day). Wait a minute or upgrade billing.',
       });
     }
-
-    console.log('[OCR Route] ✅ OCR extraction successful');
-    res.json({
-      success: true,
-      ...result,
-      isBlurry: false
-    });
-  } catch (error) {
-    console.error('[OCR Route] Error:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message || 'OCR spec plate analysis failed',
-      isBlurry: false 
-    });
+    res.status(500).json({ error: message || 'OCR spec plate analysis failed' });
   }
 });
 

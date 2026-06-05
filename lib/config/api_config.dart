@@ -13,7 +13,7 @@ class ApiConfig {
 
   /// Last-resort default when nothing else is configured.
   /// Prefer Settings or --dart-define=DEV_SERVER_HOST instead of editing this often.
-  static const String defaultDevServerHost = '10.164.38.19';
+  static const String defaultDevServerHost = '10.164.37.99';
 
   /// Build-time override (highest priority after a successful health check cache).
   static const String buildTimeHost = String.fromEnvironment('DEV_SERVER_HOST');

@@ -94,12 +94,12 @@ export async function processOcr(imageBuffer) {
         bufferToGenerativePart(imageBuffer),
         `You are an OCR engine. Extract ANY text you can read from this specification label plate.
 Try to identify:
-- Any brand or manufacturer name
 - Any model number or model name
 - Any serial number (look for S/N, SN, Serial No, or long alphanumeric strings)
-- Any voltage values (look for V, VAC, VDC)
-- Any current values (look for A, Amps)
+- Any voltage values (look for V, VAC, VDC) (e.g. 230V AC, 400V AC, 110-240V)
+- Any current values (look for A, Amps) (e.g. 32A, 16A)
 
+NOTE: Do NOT guess the brand — it will be detected separately.
 Be generous — if you see text that COULD be a serial number or model, extract it.
 Do not return null unless the field is completely absent or unreadable.`,
       ],
@@ -108,7 +108,6 @@ Do not return null unless the field is completely absent or unreadable.`,
         responseSchema: {
           type: 'OBJECT',
           properties: {
-            brand:         { type: 'STRING', description: 'Manufacturer name (e.g. Tesla, ABB, Wallbox)' },
             modelName:     { type: 'STRING', description: 'Commercial model name' },
             serialNumber:  { type: 'STRING', description: 'Product serial number' },
             inputVoltage:  { type: 'STRING', description: 'Input voltage rating (e.g. 230V AC, 400V 3-phase)' },
@@ -131,7 +130,6 @@ Do not return null unless the field is completely absent or unreadable.`,
 
     // Count how many fields were successfully extracted (not null/undefined)
     const extractedCount = [
-      data.brand,
       data.modelName,
       data.serialNumber,
       data.inputVoltage,
@@ -140,21 +138,30 @@ Do not return null unless the field is completely absent or unreadable.`,
 
     console.log(`  Fields extracted: ${extractedCount}/5`);
  
-    const hasKeyFields = data.serialNumber || data.modelName;
-    
-    // Require at least 2 fields
-    if (extractedCount < 2 || !hasKeyFields) {
-  console.warn(`[OCR Result] ⚠️ Missing key fields (need at least model or serial)`);
-  return {
-    success: false,
+    const hasKeyFields = Boolean(
+      (data.serialNumber && String(data.serialNumber).trim()) ||
+      (data.modelName && String(data.modelName).trim()),
+    );
+
+    if (!hasKeyFields) {
+      console.warn('[OCR Result] No model or serial number could be read');
+      return {
+        success: false,
         brand: data.brand || 'unknown',
         modelName: data.modelName || 'unknown',
         serialNumber: data.serialNumber || 'unknown',
         inputVoltage: data.inputVoltage || 'unknown',
         outputCurrent: data.outputCurrent || 'unknown',
-        partialExtraction: true,
-        reason: `Only ${extractedCount} fields readable. Need better image quality.`
+        partialExtraction: extractedCount > 0,
+        reason: extractedCount > 0
+          ? `Only ${extractedCount} field(s) readable. Need a clearer view of the model or serial number.`
+          : 'Could not read any text from the plate. Move closer, improve lighting, and hold steady.',
       };
+    }
+
+    const partialExtraction = extractedCount < 4;
+    if (partialExtraction) {
+      console.warn(`[OCR Result] Partial read (${extractedCount}/4 fields); accepting model/serial`);
     }
 
     return {
@@ -164,9 +171,25 @@ Do not return null unless the field is completely absent or unreadable.`,
       serialNumber: data.serialNumber || 'unknown',
       inputVoltage: data.inputVoltage || 'unknown',
       outputCurrent: data.outputCurrent || 'unknown',
+      partialExtraction,
     };
   } catch (error) {
-    console.error('[Gemini API Error] processOcr failed:', error.message || error);
+    const message = error.message || String(error);
+    console.error('[Gemini API Error] processOcr failed:', message);
+
+    if (message.includes('429') || message.includes('RESOURCE_EXHAUSTED') || message.includes('quota')) {
+      return {
+        success: false,
+        brand: 'unknown',
+        modelName: 'unknown',
+        serialNumber: 'unknown',
+        inputVoltage: 'unknown',
+        outputCurrent: 'unknown',
+        quotaExceeded: true,
+        reason: 'Gemini API daily quota exceeded. Wait ~1 minute and retry, or upgrade your API plan.',
+      };
+    }
+
     throw error;
   }
 }

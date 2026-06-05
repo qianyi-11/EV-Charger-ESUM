@@ -10,8 +10,12 @@ class OcrResultData {
   final String? brand;
   final String? inputVoltage;
   final String? outputCurrent;
+  final double? powerRatingKw;
+  final double? confidence;
   final bool isBlurry;
   final bool partialExtraction;
+  final bool quotaExceeded;
+  final String? reason;
 
   OcrResultData({
     required this.success,
@@ -21,8 +25,12 @@ class OcrResultData {
     this.brand,
     this.inputVoltage,
     this.outputCurrent,
+    this.powerRatingKw = null,
+    this.confidence = null,
     this.isBlurry = false,
     this.partialExtraction = false,
+    this.quotaExceeded = false,
+    this.reason,
   });
 }
 
@@ -32,7 +40,12 @@ class OcrHandler {
   OcrHandler({required this.baseUrl});
 
   Future<OcrResultData> processImage(File imageFile) async {
-    try {
+      try {
+      print('====== OCR HANDLER START ======');
+      print('Sending to: $baseUrl/api/vision/ocr');
+      print('File path: ${imageFile.path}');
+      print('File exists: ${await imageFile.exists()}');
+
       final request = http.MultipartRequest(
         'POST',
         Uri.parse('$baseUrl/api/vision/ocr'),
@@ -42,15 +55,39 @@ class OcrHandler {
         await http.MultipartFile.fromPath('image', imageFile.path),
       );
 
+      print('Request built, sending...');
+
       final streamedResponse = await request.send()
           .timeout(const Duration(seconds: 30));
+      
+      print('Response received: ${streamedResponse.statusCode}');
+      
       final response = await http.Response.fromStream(streamedResponse);
 
+      print('Response body: ${response.body}');
+
+      final dynamic body = response.body.isNotEmpty ? jsonDecode(response.body) : null;
+
       if (response.statusCode != 200) {
-        throw Exception('Server error: ${response.statusCode}');
+        final errorText = body is Map
+            ? (body['error']?.toString() ?? body['reason']?.toString())
+            : null;
+        final message = errorText ?? 'Server error: ${response.statusCode}';
+        final quotaExceeded = message.contains('429') ||
+            message.toLowerCase().contains('quota');
+        return OcrResultData(
+          success: false,
+          extractedText: message,
+          serialNumber: 'Unknown',
+          modelName: 'Unknown',
+          quotaExceeded: quotaExceeded,
+          reason: quotaExceeded
+              ? 'Gemini API quota exceeded. Wait a minute or check billing.'
+              : message,
+        );
       }
 
-      final data = jsonDecode(response.body);
+      final data = body as Map<String, dynamic>;
 
       return OcrResultData(
         success: data['success'] ?? false,
@@ -62,8 +99,11 @@ class OcrHandler {
         outputCurrent: data['outputCurrent'],
         isBlurry:      data['isBlurry'] ?? false,
         partialExtraction: data['partialExtraction'] ?? false,
+        quotaExceeded: data['quotaExceeded'] ?? false,
+        reason: data['reason']?.toString(),
       );
     } catch (e) {
+      print('====== OCR HANDLER ERROR: $e ======');
       return OcrResultData(
         success: false,
         extractedText: 'OCR failed: $e',
