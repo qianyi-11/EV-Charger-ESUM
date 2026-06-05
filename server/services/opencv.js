@@ -8,9 +8,11 @@ const __dirname = path.dirname(__filename);
 const SCRIPT_PATH = path.join(__dirname, 'opencv_red_detect.py');
 
 /**
- * OpenCV HSV red LED detection (replaces YOLO for status light color).
+ * OpenCV HSV red LED detection scoped to the YOLO charger bounding box.
+ * @param {Buffer} imageBuffer
+ * @param {number[]|null} chargerBox - [x1, y1, x2, y2] from YOLO, or null for fallback crop
  */
-export function runOpenCvRedDetection(imageBuffer) {
+export function runOpenCvRedDetection(imageBuffer, chargerBox = null) {
   return new Promise((resolve) => {
     const tempDir = path.join(__dirname, '..', 'temp');
     if (!fs.existsSync(tempDir)) {
@@ -32,8 +34,15 @@ export function runOpenCvRedDetection(imageBuffer) {
         });
       }
 
-      console.log(`[OpenCV Service] Running red LED detection on: ${tempFilePath}`);
-      runPythonScript(SCRIPT_PATH, [tempFilePath]).then(({ code, stdoutData, stderrData, python }) => {
+      const scriptArgs = [tempFilePath];
+      if (Array.isArray(chargerBox) && chargerBox.length === 4) {
+        scriptArgs.push(...chargerBox.map((v) => String(v)));
+        console.log(`[OpenCV Service] Running red LED detection in charger ROI: ${chargerBox.join(', ')}`);
+      } else {
+        console.log(`[OpenCV Service] Running red LED detection (no charger ROI — fallback crop)`);
+      }
+
+      runPythonScript(SCRIPT_PATH, scriptArgs).then(({ code, stdoutData, stderrData, python }) => {
         fs.unlink(tempFilePath, (unlinkErr) => {
           if (unlinkErr) console.error('[OpenCV Service] Failed to delete temp file:', unlinkErr);
         });

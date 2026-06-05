@@ -52,6 +52,10 @@ class DiagnosticState {
   bool   isEvdbOk       = false;
   int    blinksCounted  = 0;
   String targetErrorCode = '';
+
+  /// Live findings from the latest EVDB / vision scan (shown on result page).
+  List<String> scanFindings = [];
+  double scanConfidence = 0.0;
  
   List<Map<String, dynamic>> recentActivity = [];
  
@@ -92,6 +96,22 @@ class DiagnosticState {
   void setPowerBranchOutcomes({required bool isolatorOn, required bool evdbOk}) {
     isIsolatorOn = isolatorOn;
     isEvdbOk = evdbOk;
+  }
+
+  /// Store real scan findings for the diagnosis result screen.
+  void setScanFindings({
+    required List<String> findings,
+    required double confidence,
+    required String errorCode,
+  }) {
+    scanFindings = findings;
+    scanConfidence = confidence;
+    targetErrorCode = errorCode;
+  }
+
+  void clearScanFindings() {
+    scanFindings = [];
+    scanConfidence = 0.0;
   }
   
   /// Set selected branch/region

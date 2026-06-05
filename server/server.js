@@ -3,14 +3,13 @@ import cors from 'cors';
 import multer from 'multer';
 import dotenv from 'dotenv';
 import {
-  checkBlur,
   processOcr,
-  analyzeEvdb,
-  analyzeIsolator,
+  ocrEvdbBreakerLabels,
   chatAssistant
 } from './services/gemini.js';
-import { runYoloInference } from './services/yolo.js';
-import { runOpenCvRedDetection } from './services/opencv.js';
+import { runYoloInference, runIsolatorYoloInference } from './services/yolo.js';
+import { runGatewayDetection, runRedViaWorker, warmVisionWorker } from './services/vision_worker.js';
+import { analyzeEvdbCompliance } from './services/evdb_analyzer.js';
 import { analyzeBlinkingVideo } from './services/blinking_detector.js';
 
 // Load environment variables from .env file
@@ -33,25 +32,8 @@ app.use((req, res, next) => {
 });
 
 /**
- * 1. POST /api/vision/check-blur
- * Ahead-of-time blur/shake checking.
- */
-app.post('/api/vision/check-blur', upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file uploaded' });
-    }
-    const result = await checkBlur(req.file.buffer);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message || 'Image clarity check failed' });
-  }
-});
-
-/**
- * 2. POST /api/vision/ocr
+ * 1. POST /api/vision/ocr
  * Spec Plate recognition and text parameter extraction.
- * First checks blur, then processes OCR if image is sharp.
  */
 app.post('/api/vision/ocr', upload.single('image'), async (req, res) => {
   try {
@@ -142,26 +124,133 @@ app.post('/api/vision/analyze-evdb', upload.single('image'), async (req, res) =>
     
     console.log('[Express DB Route] Specs context received:', specsContext);
     
-    // Perform hybrid detection: local YOLO + Gemini cognitive inspection
-    console.log('[Express DB Route] Initiating hybrid YOLO & Gemini analysis...');
+    console.log('[Express DB Route] YOLO MCB/RCCB/Type-A + spec validation...');
     const yoloResult = await runYoloInference(req.file.buffer);
-    const geminiResult = await analyzeEvdb(req.file.buffer, specsContext);
-    
+    const detections = yoloResult.detections || [];
+
+    const mcbPresent = detections.some((d) => (d.class || '').toLowerCase().includes('mcb'));
+    const rccbPresent = detections.some((d) => (d.class || '').toLowerCase().includes('rccb'));
+
+    let ocrResult = null;
+    if (mcbPresent && rccbPresent && specsContext.outputCurrent) {
+      try {
+        ocrResult = await ocrEvdbBreakerLabels(req.file.buffer);
+      } catch (ocrErr) {
+        console.warn('[Express DB Route] EVDB OCR skipped:', ocrErr.message);
+      }
+    }
+
+    const result = analyzeEvdbCompliance({
+      detections,
+      specsContext,
+      ocrResult,
+    });
+
+    console.log(
+      `[Express DB Route] compliant=${result.isCompliant} retake=${result.retakeRequired} ` +
+      `mcb=${result.mcbDetected} rccb=${result.rccbDetected} typeA=${result.typeADetected}`,
+    );
+
     res.json({
-      ...geminiResult,
-      detections: yoloResult.detections || [],
+      ...result,
+      detections,
       yoloSuccess: yoloResult.success,
       warning: yoloResult.warning,
-      specsUsed: specsContext
+      specsUsed: specsContext,
+      method: 'yolo_spec_validation',
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'EVDB compliance evaluation failed' });
   }
 });
 
+function isChargerClass(className) {
+  const name = (className || '').toLowerCase();
+  return name.includes('charger') || name.includes('gateway') || name.includes('body');
+}
+
+function normalizeDetClass(className) {
+  return (className || '').toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isIsolatorOnClass(className) {
+  const name = normalizeDetClass(className);
+  if (name.includes('isolator') && name.includes('on') && !name.includes('off')) return true;
+  if (name.includes('switch') && name.includes('on') && !name.includes('off')) return true;
+  return name.includes('isolator_on') || name === 'on' || name.endsWith('_on');
+}
+
+function isIsolatorOffClass(className) {
+  const name = normalizeDetClass(className);
+  if (name.includes('isolator') && name.includes('off')) return true;
+  if (name.includes('switch') && name.includes('off')) return true;
+  return name.includes('isolator_off') || name === 'off' || name.endsWith('_off');
+}
+
+function hasIsolatorDetection(detections) {
+  if (!Array.isArray(detections)) return false;
+  return detections.some((d) => {
+    const name = normalizeDetClass(d.class);
+    return name.includes('isolator') || isIsolatorOnClass(d.class) || isIsolatorOffClass(d.class);
+  });
+}
+
+function pickIsolatorDetection(detections) {
+  if (!Array.isArray(detections) || !detections.length) return null;
+  const onDet = detections.filter((d) => isIsolatorOnClass(d.class));
+  const offDet = detections.filter((d) => isIsolatorOffClass(d.class));
+  const pool = [...onDet, ...offDet];
+  if (!pool.length) return null;
+  return pool.reduce((a, b) => ((b.confidence ?? 0) > (a.confidence ?? 0) ? b : a));
+}
+
+function parseIsolatorSwitchFromYolo(detections) {
+  if (!Array.isArray(detections) || !detections.length) return null;
+
+  const onDet = detections
+    .filter((d) => isIsolatorOnClass(d.class))
+    .reduce((best, d) => ((d.confidence ?? 0) > (best?.confidence ?? -1) ? d : best), null);
+  const offDet = detections
+    .filter((d) => isIsolatorOffClass(d.class))
+    .reduce((best, d) => ((d.confidence ?? 0) > (best?.confidence ?? -1) ? d : best), null);
+
+  if (onDet && offDet) {
+    return (onDet.confidence ?? 0) >= (offDet.confidence ?? 0);
+  }
+  if (onDet) return true;
+  if (offDet) return false;
+  return null;
+}
+
+function parseChargerBox(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (Array.isArray(parsed) && parsed.length === 4) {
+      return parsed.map(Number);
+    }
+  } catch (_) {
+    return null;
+  }
+  return null;
+}
+
+/** Pick the highest-confidence YOLO detection for the charger body. */
+function pickChargerBox(detections) {
+  if (!Array.isArray(detections) || !detections.length) return null;
+
+  const chargerDets = detections.filter((d) => isChargerClass(d.class));
+  if (!chargerDets.length) return null;
+
+  const best = chargerDets.reduce((a, b) =>
+    (b.confidence ?? 0) > (a.confidence ?? 0) ? b : a
+  );
+  return Array.isArray(best.box) && best.box.length === 4 ? best.box : null;
+}
+
 /**
  * 4. POST /api/vision/detect-gateway
- * YOLO charger body + OpenCV red LED detection.
+ * YOLO charger body, then OpenCV red LED inside the charger region.
  */
 app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) => {
   try {
@@ -169,46 +258,40 @@ app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) 
       return res.status(400).json({ error: 'No image file uploaded' });
     }
 
-    console.log('[Express Gateway Route] YOLO charger + OpenCV red LED...');
-    const [yoloResult, opencvResult] = await Promise.all([
-      runYoloInference(req.file.buffer),
-      runOpenCvRedDetection(req.file.buffer),
-    ]);
+    console.log('[Express Gateway Route] Gateway detect (warm YOLO + OpenCV)...');
+    const gatewayResult = await runGatewayDetection(req.file.buffer);
 
-    let chargerDetected = false;
-    if (yoloResult.success && yoloResult.detections?.length) {
-      chargerDetected = yoloResult.detections.some((d) => {
-        const name = (d.class || '').toLowerCase();
-        return name.includes('charger') || name.includes('gateway') || name.includes('body');
-      });
-    }
+    let chargerDetected = gatewayResult.chargerDetected ?? false;
+    let chargerBox = gatewayResult.chargerBox ?? null;
 
-    // Only assume charger is present in mock/simulation mode (never in production failure)
-    if (!chargerDetected && yoloResult.mock) {
+    if (!chargerDetected && gatewayResult.mock) {
       chargerDetected = true;
+      chargerBox = gatewayResult.detections?.[0]?.box ?? chargerBox;
       console.log('[Express Gateway Route] Charger assumed present (Mock mode enabled).');
     }
-    
-    if (!chargerDetected && !yoloResult.mock) {
+
+    if (!chargerDetected && !gatewayResult.mock) {
       console.log('[Express Gateway Route] Charger NOT detected - YOLO analysis failed or no charger in frame.');
     }
 
     console.log(
-      `[Express Gateway Route] charger=${chargerDetected} light=${opencvResult.lightDetected} ` +
-      `color=${opencvResult.lightColor}`
+      `[Express Gateway Route] charger=${chargerDetected} light=${gatewayResult.lightDetected} ` +
+      `color=${gatewayResult.lightColor} conf=${gatewayResult.confidence ?? 0} ` +
+      `roi=${gatewayResult.opencvMethod ?? 'n/a'}`
     );
 
     res.json({
-      success: true,
+      success: gatewayResult.success !== false,
       chargerDetected,
-      lightDetected: opencvResult.lightDetected,
-      lightColor: opencvResult.lightColor,
-      confidence: opencvResult.confidence ?? 0,
-      detections: yoloResult.detections || [],
-      yoloSuccess: yoloResult.success,
-      opencvSuccess: opencvResult.success,
-      opencvMethod: opencvResult.method,
-      warning: opencvResult.warning || yoloResult.warning,
+      lightDetected: gatewayResult.lightDetected ?? false,
+      lightColor: gatewayResult.lightColor ?? 'OFF',
+      confidence: gatewayResult.confidence ?? 0,
+      detections: gatewayResult.detections || [],
+      chargerBox,
+      yoloSuccess: gatewayResult.yoloSuccess ?? gatewayResult.success,
+      opencvSuccess: true,
+      opencvMethod: gatewayResult.opencvMethod,
+      warning: gatewayResult.warning,
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Gateway LED classification failed' });
@@ -217,21 +300,69 @@ app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) 
 
 /**
  * 4b. POST /api/vision/detect-red-light
- * Fast OpenCV-only poll while the app scans for a red LED.
+ * YOLO charger region, then OpenCV red LED poll inside that region.
  */
 app.post('/api/vision/detect-red-light', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No image file uploaded' });
     }
-    const opencvResult = await runOpenCvRedDetection(req.file.buffer);
+
+    let chargerBox = parseChargerBox(req.body?.chargerBox);
+    let routeWarning = null;
+
+    if (!chargerBox) {
+      const yoloResult = await runYoloInference(req.file.buffer);
+      routeWarning = yoloResult.warning;
+      chargerBox = pickChargerBox(yoloResult.detections);
+      if (!chargerBox && yoloResult.mock) {
+        chargerBox = yoloResult.detections?.[0]?.box ?? null;
+      }
+      if (!chargerBox) {
+        console.log('[Express Red-Light Route] No charger ROI — skipping red LED scan.');
+        return res.json({
+          success: true,
+          lightDetected: false,
+          lightColor: 'OFF',
+          confidence: 0,
+          opencvMethod: 'skipped_no_charger',
+          warning: routeWarning,
+        });
+      }
+    } else {
+      console.log('[Express Red-Light Route] Using cached charger ROI (skipping YOLO).');
+    }
+
+    let opencvResult = await runRedViaWorker(req.file.buffer, chargerBox);
+
+    // Cached ROI can drift between frames — retry with a fresh YOLO box if no light found.
+    if (!opencvResult.lightDetected && chargerBox) {
+      const yoloResult = await runYoloInference(req.file.buffer);
+      const freshBox = pickChargerBox(yoloResult.detections);
+      if (freshBox) {
+        const retryResult = await runRedViaWorker(req.file.buffer, freshBox);
+        if (retryResult.lightDetected || (retryResult.confidence ?? 0) > (opencvResult.confidence ?? 0)) {
+          opencvResult = retryResult;
+          chargerBox = freshBox;
+          console.log('[Express Red-Light Route] Retried with fresh YOLO charger ROI.');
+        }
+      }
+    }
+
+    console.log(
+      `[Express Red-Light Route] light=${opencvResult.lightDetected} ` +
+      `color=${opencvResult.lightColor} conf=${opencvResult.confidence ?? 0} ` +
+      `ratio=${opencvResult.redPixelRatio ?? 'n/a'} method=${opencvResult.method ?? 'n/a'}`
+    );
+
     res.json({
-      success: opencvResult.success,
-      lightDetected: opencvResult.lightDetected,
-      lightColor: opencvResult.lightColor,
+      success: opencvResult.success !== false,
+      lightDetected: opencvResult.lightDetected ?? false,
+      lightColor: opencvResult.lightColor ?? 'OFF',
       confidence: opencvResult.confidence ?? 0,
       opencvMethod: opencvResult.method,
-      warning: opencvResult.warning,
+      chargerBox,
+      warning: opencvResult.warning || opencvResult.error || routeWarning,
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Red LED detection failed' });
@@ -248,26 +379,48 @@ app.post('/api/vision/analyze-isolator', upload.single('image'), async (req, res
       return res.status(400).json({ error: 'No image file uploaded' });
     }
     
-    // Perform hybrid detection: local YOLO + Gemini toggle inspection
-    console.log('[Express Isolator Route] Initiating hybrid YOLO & Gemini analysis...');
-    const yoloResult = await runYoloInference(req.file.buffer);
-    const geminiResult = await analyzeIsolator(req.file.buffer);
-    
-    let isSwitchOn = geminiResult.isSwitchOn;
-    // Let YOLO override if it detects 'on' or 'off'
-    if (yoloResult.success && yoloResult.detections) {
-      const onDet = yoloResult.detections.find(d => d.class.toLowerCase().includes('on'));
-      const offDet = yoloResult.detections.find(d => d.class.toLowerCase().includes('off'));
-      if (onDet) isSwitchOn = true;
-      else if (offDet) isSwitchOn = false;
+    console.log('[Express Isolator Route] YOLO isolator_on / isolator_off detection...');
+    const yoloResult = await runIsolatorYoloInference(req.file.buffer);
+    const detections = yoloResult.detections || [];
+
+    console.log(
+      '[Express Isolator Route] YOLO classes: ' +
+      (detections.map((d) => `${d.class}(${d.confidence})`).join(', ') || 'none'),
+    );
+
+    const yoloSwitch = parseIsolatorSwitchFromYolo(detections);
+    const isolatorDetected = hasIsolatorDetection(detections);
+
+    if (yoloSwitch !== null) {
+      const match = pickIsolatorDetection(detections);
+      const confidence = match?.confidence ?? 0.9;
+      console.log(`[Express Isolator Route] YOLO result: ${yoloSwitch ? 'ON' : 'OFF'} (${confidence})`);
+      return res.json({
+        success: true,
+        isSwitchOn: yoloSwitch,
+        isolatorDetected: true,
+        confidence,
+        detections,
+        yoloSuccess: yoloResult.success,
+        method: 'yolo',
+        detectedClass: match?.class ?? null,
+        warning: yoloResult.warning,
+      });
     }
-    
-    res.json({
-      ...geminiResult,
-      isSwitchOn,
-      detections: yoloResult.detections || [],
+
+    console.log('[Express Isolator Route] YOLO inconclusive — no Gemini fallback (YOLO-only).');
+    return res.json({
+      success: false,
+      isolatorDetected,
+      isSwitchOn: false,
+      confidence: 0,
+      detections,
       yoloSuccess: yoloResult.success,
-      warning: yoloResult.warning
+      method: 'yolo_only_failed',
+      errorMessage: isolatorDetected
+        ? 'YOLO found an isolator but could not determine ON/OFF. Retake a clearer photo.'
+        : 'YOLO could not detect isolator_on or isolator_off. Ensure the switch is visible and retake.',
+      warning: yoloResult.warning,
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Isolator toggle analysis failed' });
@@ -323,10 +476,12 @@ app.get('/health', (req, res) => {
 });
 
 // Boot the server
+warmVisionWorker();
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`================================================================`);
   console.log(` REXHARGE EV DIAGNOSTICS PROXY SERVER RUNNING`);
   console.log(` Endpoint: http://localhost:${PORT}`);
   console.log(` Mode: ${process.env.GEMINI_API_KEY ? 'Active Gemini AI' : 'Simulated Offline Mock'}`);
+  console.log(` Vision: warm YOLO worker (model preloaded at startup)`);
   console.log(`================================================================`);
 });

@@ -10,6 +10,12 @@ class CameraViewfinder extends StatefulWidget {
   final Function(CameraController)? onControllerCreated;
   final bool fillScreen;
   final bool forVideo;
+  /// High resolution + fresh session for still captures (OCR, EVDB, isolator).
+  final bool highQualityCapture;
+  /// Discard any existing session and open a new high-quality camera.
+  final bool forceNewSession;
+  /// Called when the camera preview is initialized and ready to capture.
+  final VoidCallback? onReady;
 
   const CameraViewfinder({
     super.key,
@@ -17,8 +23,11 @@ class CameraViewfinder extends StatefulWidget {
     this.overlay,
     this.aspectRatio = 4 / 3,
     this.onControllerCreated,
+    this.onReady,
     this.fillScreen = false,
     this.forVideo = false,
+    this.highQualityCapture = false,
+    this.forceNewSession = false,
   });
 
   @override
@@ -75,6 +84,8 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
     try {
       final controller = await CameraSessionManager.instance.acquire(
         forVideo: widget.forVideo,
+        highQuality: widget.highQualityCapture,
+        forceNew: widget.forceNewSession,
       );
       _controller = controller;
       _ownsSession = true;
@@ -87,6 +98,7 @@ class _CameraViewfinderState extends State<CameraViewfinder> with WidgetsBinding
       });
 
       widget.onControllerCreated?.call(controller);
+      widget.onReady?.call();
     } catch (e) {
       if (mounted) {
         setState(() {

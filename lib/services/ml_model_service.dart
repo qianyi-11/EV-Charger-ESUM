@@ -51,6 +51,8 @@ class ChargerDetectionResult {
   final String lightColor; // "RED", "GREEN", "OFF"
   final double confidence;
   final String? errorMessage;
+  /// YOLO bounding box [x1, y1, x2, y2] — reused for fast red-light polls.
+  final List<double>? chargerBox;
 
   ChargerDetectionResult({
     required this.success,
@@ -59,6 +61,7 @@ class ChargerDetectionResult {
     required this.lightColor,
     required this.confidence,
     this.errorMessage,
+    this.chargerBox,
   });
 }
 
@@ -83,21 +86,38 @@ class BlinkDetectionResult {
 class IsolatorResult {
   final bool success;
   final bool isSwitchOn;
+  final bool isolatorDetected;
   final double confidence;
   final String? errorMessage;
+  final String? method;
+  final String? detectedClass;
 
   IsolatorResult({
     required this.success,
     required this.isSwitchOn,
+    this.isolatorDetected = false,
     required this.confidence,
     this.errorMessage,
+    this.method,
+    this.detectedClass,
   });
 }
 
 /// The result returned from inspecting the EVDB breaker rail layouts.
 class EvdbResult {
   final bool success;
-  final bool isCompliant; // Check if matching 32A MCB and Type-B RCCB
+  final bool isCompliant;
+  final bool retakeRequired;
+  final String? retakeReason;
+  final String? errorCode;
+  final String? faultType;
+  final List<String> issues;
+  final bool mcbDetected;
+  final bool rccbDetected;
+  final bool typeADetected;
+  final int? mcbPhase;
+  final int? rccbPhase;
+  final int? expectedPhase;
   final String detectedMcbRating;
   final String detectedRccbRating;
   final double confidence;
@@ -106,11 +126,45 @@ class EvdbResult {
   EvdbResult({
     required this.success,
     required this.isCompliant,
+    this.retakeRequired = false,
+    this.retakeReason,
+    this.errorCode,
+    this.faultType,
+    this.issues = const [],
+    this.mcbDetected = false,
+    this.rccbDetected = false,
+    this.typeADetected = false,
+    this.mcbPhase,
+    this.rccbPhase,
+    this.expectedPhase,
     required this.detectedMcbRating,
     required this.detectedRccbRating,
     required this.confidence,
     this.errorMessage,
   });
+
+  factory EvdbResult.fromJson(Map<String, dynamic> json) {
+    final rawIssues = json['issues'];
+    return EvdbResult(
+      success: json['success'] ?? false,
+      isCompliant: json['isCompliant'] ?? false,
+      retakeRequired: json['retakeRequired'] ?? false,
+      retakeReason: json['retakeReason']?.toString(),
+      errorCode: json['errorCode']?.toString(),
+      faultType: json['faultType']?.toString(),
+      issues: rawIssues is List ? rawIssues.map((e) => e.toString()).toList() : const [],
+      mcbDetected: json['mcbDetected'] ?? false,
+      rccbDetected: json['rccbDetected'] ?? false,
+      typeADetected: json['typeADetected'] ?? false,
+      mcbPhase: json['mcbPhase'] is num ? (json['mcbPhase'] as num).toInt() : null,
+      rccbPhase: json['rccbPhase'] is num ? (json['rccbPhase'] as num).toInt() : null,
+      expectedPhase: json['expectedPhase'] is num ? (json['expectedPhase'] as num).toInt() : null,
+      detectedMcbRating: json['detectedMcbRating']?.toString() ?? 'Unknown',
+      detectedRccbRating: json['detectedRccbRating']?.toString() ?? 'Unknown',
+      confidence: (json['confidence'] ?? 0.0).toDouble(),
+      errorMessage: json['errorMessage']?.toString(),
+    );
+  }
 }
 
 /// Enterprise ML Model Integration Gateway Service
@@ -250,21 +304,10 @@ class MlModelService {
           final response = await request.send();
           if (response.statusCode == 200) {
             final json = jsonDecode(await response.stream.bytesToString());
-            var lightDetected = json['lightDetected'] ?? false;
-            var lightColor = (json['lightColor'] ?? "OFF").toString();
-            var confidence = (json['confidence'] ?? 0.0).toDouble();
-
-            if (!lightDetected) {
-              final local = await RedLedDetector.analyzeFile(imageFile.path);
-              if (local.detected) {
-                lightDetected = true;
-                lightColor = "RED";
-                confidence = math.max(confidence, local.confidence);
-                if (kDebugMode) {
-                  print("[ML Service] On-device red fallback: ratio=${local.redRatio}");
-                }
-              }
-            }
+            final lightDetected = json['lightDetected'] ?? false;
+            final lightColor = (json['lightColor'] ?? "OFF").toString();
+            final confidence = (json['confidence'] ?? 0.0).toDouble();
+            final chargerBox = _parseChargerBox(json['chargerBox']);
 
             return ChargerDetectionResult(
               success: json['success'] ?? true,
@@ -272,6 +315,7 @@ class MlModelService {
               lightDetected: lightDetected,
               lightColor: lightColor,
               confidence: confidence,
+              chargerBox: chargerBox,
             );
           } else {
             throw Exception("Server returned status: ${response.statusCode}");
@@ -296,8 +340,20 @@ class MlModelService {
     }
   }
 
+  List<double>? _parseChargerBox(dynamic raw) {
+    if (raw is! List || raw.length != 4) return null;
+    try {
+      return raw.map((v) => (v as num).toDouble()).toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// OpenCV red LED scan during the live search window (lighter than full gateway detect).
-  Future<ChargerDetectionResult> processChargerRedLight(XFile imageFile) async {
+  Future<ChargerDetectionResult> processChargerRedLight(
+    XFile imageFile, {
+    List<double>? chargerBox,
+  }) async {
     if (kDebugMode) {
       print("[ML Service] OpenCV red LED frame: ${imageFile.path}");
     }
@@ -322,25 +378,16 @@ class MlModelService {
               'image',
               imageFile.path,
             ));
+          if (chargerBox != null && chargerBox.length == 4) {
+            request.fields['chargerBox'] = jsonEncode(chargerBox);
+          }
 
           final response = await request.send();
           if (response.statusCode == 200) {
             final json = jsonDecode(await response.stream.bytesToString());
-            var lightDetected = json['lightDetected'] ?? false;
-            var lightColor = (json['lightColor'] ?? "OFF").toString();
-            var confidence = (json['confidence'] ?? 0.0).toDouble();
-
-            if (!lightDetected) {
-              final local = await RedLedDetector.analyzeFile(imageFile.path);
-              if (local.detected) {
-                lightDetected = true;
-                lightColor = "RED";
-                confidence = math.max(confidence, local.confidence);
-                if (kDebugMode) {
-                  print("[ML Service] On-device red poll hit: ratio=${local.redRatio}");
-                }
-              }
-            }
+            final lightDetected = json['lightDetected'] ?? false;
+            final lightColor = (json['lightColor'] ?? "OFF").toString();
+            final confidence = (json['confidence'] ?? 0.0).toDouble();
 
             return ChargerDetectionResult(
               success: json['success'] ?? true,
@@ -348,6 +395,7 @@ class MlModelService {
               lightDetected: lightDetected,
               lightColor: lightColor,
               confidence: confidence,
+              chargerBox: _parseChargerBox(json['chargerBox']) ?? chargerBox,
             );
           }
           throw Exception("Server returned status: ${response.statusCode}");
@@ -506,7 +554,11 @@ class MlModelService {
             return IsolatorResult(
               success: json['success'] ?? false,
               isSwitchOn: json['isSwitchOn'] ?? false,
+              isolatorDetected: json['isolatorDetected'] ?? false,
               confidence: (json['confidence'] ?? 0.0).toDouble(),
+              errorMessage: json['errorMessage']?.toString(),
+              method: json['method']?.toString(),
+              detectedClass: json['detectedClass']?.toString(),
             );
           } else {
             throw Exception("Server returned status: ${response.statusCode}");
@@ -570,15 +622,8 @@ class MlModelService {
           
           final response = await request.send();
           if (response.statusCode == 200) {
-            final json = jsonDecode(await response.stream.bytesToString());
-            return EvdbResult(
-              success: json['success'] ?? false,
-              isCompliant: json['isCompliant'] ?? false,
-              detectedMcbRating: json['detectedMcbRating'] ?? "Unknown",
-              detectedRccbRating: json['detectedRccbRating'] ?? "Unknown",
-              confidence: (json['confidence'] ?? 0.0).toDouble(),
-              errorMessage: json['errorMessage'],
-            );
+            final json = jsonDecode(await response.stream.bytesToString()) as Map<String, dynamic>;
+            return EvdbResult.fromJson(json);
           } else {
             throw Exception("Server returned status: ${response.statusCode}");
           }

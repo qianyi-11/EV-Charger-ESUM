@@ -38,7 +38,7 @@ class RedLedDetector {
           final b = byteData.getUint8(i + 2);
           sampled++;
 
-          if (r >= 120 && r > g * 1.25 && r > b * 1.25 && (r - g) >= 35) {
+          if (r >= 170 && r > g * 1.5 && r > b * 1.5 && (r - g) >= 55) {
             redHits++;
           }
         }
@@ -47,8 +47,8 @@ class RedLedDetector {
       decoded.dispose();
 
       final ratio = redHits / math.max(sampled, 1);
-      final detected = ratio > 0.012 || redHits >= 8;
-      final confidence = math.min(0.99, ratio * 4.0 + redHits / 40.0);
+      final detected = ratio > 0.03;
+      final confidence = math.min(0.99, ratio * 6.0);
 
       return RedLedResult(
         detected: detected,

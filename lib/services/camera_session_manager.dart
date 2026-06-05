@@ -10,16 +10,28 @@ class CameraSessionManager {
   CameraController? _controller;
   int _refCount = 0;
   bool _initializing = false;
+  ResolutionPreset? _activePreset;
 
   CameraController? get controller => _controller;
 
   bool get isReady =>
       _controller != null && _controller!.value.isInitialized;
 
+  /// [highQuality] uses [ResolutionPreset.high] for sharp still captures (OCR, EVDB, isolator).
+  /// Charger live-polling uses the default medium preset.
   Future<CameraController> acquire({
     bool forVideo = false,
-    ResolutionPreset resolution = ResolutionPreset.medium,
+    bool highQuality = false,
+    bool forceNew = false,
   }) async {
+    final preset = forVideo
+        ? ResolutionPreset.high
+        : (highQuality ? ResolutionPreset.high : ResolutionPreset.medium);
+
+    if (forceNew || (_activePreset != null && _activePreset != preset)) {
+      await forceRelease();
+    }
+
     if (_controller != null && _controller!.value.isInitialized) {
       _refCount++;
       return _controller!;
@@ -43,14 +55,20 @@ class CameraSessionManager {
 
       final controller = CameraController(
         cameras.first,
-        forVideo ? ResolutionPreset.high : resolution,
-        enableAudio: false, // Visual frames only; eliminates mic permission checks completely
+        preset,
+        enableAudio: false,
         imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
       await controller.initialize();
       _controller = controller;
+      _activePreset = preset;
       _refCount = 1;
+
+      if (kDebugMode) {
+        debugPrint('[CameraSession] initialized preset=$preset');
+      }
+
       return controller;
     } finally {
       _initializing = false;
@@ -65,6 +83,7 @@ class CameraSessionManager {
     _refCount = 0;
     final controller = _controller;
     _controller = null;
+    _activePreset = null;
     if (controller != null) {
       try {
         if (controller.value.isRecordingVideo) {
@@ -83,7 +102,6 @@ class CameraSessionManager {
         }
       }
     }
-    // Brief pause lets the Android camera HAL release before the next screen opens.
     await Future.delayed(const Duration(milliseconds: 350));
   }
 }

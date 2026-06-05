@@ -1,10 +1,15 @@
-import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 import '../../theme/app_theme.dart';
 import '../../models/diagnostic_state.dart';
 import '../../widgets/camera_viewfinder.dart';
+import '../../services/ml_model_service.dart';
+import '../../services/camera_session_manager.dart';
+import '../../services/sharp_capture.dart';
+import '../../services/gallery_image_picker.dart';
 
-enum IsolatorPhase { scanning, captured, analyzing, resultOff, resultOn }
+enum IsolatorPhase { scanning, analyzing, resultOff, resultOn }
 
 class IsolatorDetectionScreen extends StatefulWidget {
   const IsolatorDetectionScreen({super.key});
@@ -15,78 +20,159 @@ class IsolatorDetectionScreen extends StatefulWidget {
 
 class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
   IsolatorPhase _phase = IsolatorPhase.scanning;
-  bool _showInstruction = false;
-  
-  // Checklist animations
+  bool _showInstruction = true;
+  bool _captureInFlight = false;
+  bool _cameraReady = false;
+
   bool _step1Done = false;
   bool _step2Done = false;
+  bool? _switchOn;
+
+  CameraController? _cameraController;
+  final DiagnosticState _state = DiagnosticState();
 
   @override
-  void initState() {
-    super.initState();
-    
-    // Slide up instruction after a tiny delay
-    Timer(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        setState(() {
-          _showInstruction = true;
-        });
-      }
-    });
-
-    _startSimulatedYoloScan();
+  void dispose() {
+    _cameraController = null;
+    super.dispose();
   }
 
-  void _startSimulatedYoloScan() {
-    // Simulate YOLO detecting the isolator after 3 seconds
-    Timer(const Duration(seconds: 3), () {
-      if (mounted) {
-        setState(() {
-          _phase = IsolatorPhase.captured;
-        });
-        _runFakeAnalysis();
-      }
-    });
+  void _notifyCameraNotReady() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Camera is still starting — please wait a moment.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
-  void _runFakeAnalysis() {
-    // 1.5s fake delay for "Analyzing..."
-    Timer(const Duration(milliseconds: 1500), () {
+  Future<void> _captureAndAnalyze() async {
+    if (_captureInFlight) return;
+    if (!_cameraReady ||
+        _cameraController == null ||
+        !_cameraController!.value.isInitialized) {
+      _notifyCameraNotReady();
+      return;
+    }
+
+    setState(() {
+      _captureInFlight = true;
+      _phase = IsolatorPhase.analyzing;
+    });
+
+    try {
+      final photo = await SharpCapture.takePicture(_cameraController!);
+      await _processImage(photo);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _phase = IsolatorPhase.scanning);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Capture failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _captureInFlight = false);
+    }
+  }
+
+  Future<void> _pickFromGalleryAndAnalyze() async {
+    if (_captureInFlight) return;
+
+    setState(() {
+      _captureInFlight = true;
+      _phase = IsolatorPhase.analyzing;
+    });
+
+    try {
+      final photo = await GalleryImagePicker.pick();
       if (!mounted) return;
-      setState(() {
-        _step1Done = true; // [✓] Isolator detected
-      });
-      
-      // 1.0s delay for second step
-      Timer(const Duration(milliseconds: 1000), () {
-        if (!mounted) return;
-        setState(() {
-          _step2Done = true; // [✓] Switch position
-        });
-        
-        // Final result transition based on mock global state
-        Timer(const Duration(milliseconds: 1000), () {
-          if (!mounted) return;
-          final state = DiagnosticState();
-          
-          if (state.isIsolatorOn) {
-            setState(() {
-              _phase = IsolatorPhase.resultOn;
-            });
-            // Proceed to EVDB
-            Timer(const Duration(seconds: 2), () {
-              if (mounted) {
-                Navigator.pushReplacementNamed(context, "/evdb-detection");
-              }
-            });
-          } else {
-            setState(() {
-              _phase = IsolatorPhase.resultOff;
-            });
-          }
-        });
-      });
+      if (photo == null) {
+        setState(() => _phase = IsolatorPhase.scanning);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No image selected.')),
+        );
+        return;
+      }
+      await _processImage(photo);
+    } finally {
+      if (mounted) setState(() => _captureInFlight = false);
+    }
+  }
+
+  Future<void> _processImage(XFile photo) async {
+    setState(() {
+      _step1Done = false;
+      _step2Done = false;
+      _switchOn = null;
     });
+
+    try {
+      final mlService = MlModelService();
+      final result = await mlService.processIsolatorFrame(photo);
+
+      if (!mounted) return;
+
+      if (kDebugMode) {
+        debugPrint(
+          '[IsolatorDetect] success=${result.success} detected=${result.isolatorDetected} '
+          'on=${result.isSwitchOn} method=${result.method} err=${result.errorMessage}',
+        );
+      }
+
+      if (!result.success) {
+        setState(() => _phase = IsolatorPhase.scanning);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.errorMessage ??
+                  'Isolator detection failed. Retake with the switch clearly visible.',
+            ),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+
+      setState(() => _step1Done = result.isolatorDetected);
+
+      await Future.delayed(const Duration(milliseconds: 400));
+      if (!mounted) return;
+
+      final isOn = result.isSwitchOn;
+      _state.setPowerBranchOutcomes(
+        isolatorOn: isOn,
+        evdbOk: _state.isEvdbOk,
+      );
+
+      setState(() {
+        _step2Done = true;
+        _switchOn = isOn;
+        _phase = isOn ? IsolatorPhase.resultOn : IsolatorPhase.resultOff;
+      });
+
+      if (isOn) {
+        await Future.delayed(const Duration(seconds: 2));
+        if (!mounted) return;
+        await _navigateToEvdb();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[IsolatorDetect] analyze error: $e');
+      }
+      if (mounted) {
+        setState(() => _phase = IsolatorPhase.scanning);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Isolator detection failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _navigateToEvdb() async {
+    _cameraController = null;
+    await CameraSessionManager.instance.forceRelease();
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, "/evdb-detection");
   }
 
   void _showIsolatorExample(BuildContext context) {
@@ -120,59 +206,126 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background Camera or Static Photo
           if (_phase == IsolatorPhase.scanning)
             CameraViewfinder(
-              fallbackBuilder: (context) => Container(color: Colors.black87),
+              fillScreen: true,
+              highQualityCapture: true,
+              forceNewSession: true,
+              onControllerCreated: (controller) => _cameraController = controller,
+              onReady: () {
+                if (mounted) setState(() => _cameraReady = true);
+              },
+              fallbackBuilder: (context) => Container(
+                color: Colors.black87,
+                alignment: Alignment.center,
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.videocam_off, color: AppColors.electricBlue, size: 48),
+                    SizedBox(height: 12),
+                    Text(
+                      'Camera unavailable.\nCheck permissions and try again.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ],
+                ),
+              ),
               overlay: const SizedBox.shrink(),
             )
           else
-            // Simulated Static Photo (dimmed)
             ColorFiltered(
               colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.5), BlendMode.darken),
+              child: Container(color: Colors.blueGrey.shade900),
+            ),
+
+          if (_phase == IsolatorPhase.scanning)
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 600),
+              curve: Curves.easeOutCubic,
+              bottom: _showInstruction ? 168 : -200,
+              left: 20,
+              right: 20,
               child: Container(
-                color: Colors.blueGrey.shade900, // Mock photo background
-                child: const Center(
-                  child: Icon(Icons.power, color: Colors.white24, size: 100),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.warningOrange.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber, color: AppColors.warningOrange, size: 28),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        "Point your camera at the isolator switch, or upload a photo from your gallery.",
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.info_outline, color: AppColors.electricBlue),
+                      onPressed: () => _showIsolatorExample(context),
+                    ),
+                  ],
                 ),
               ),
             ),
 
-          // Slide-up Instruction (Semi-transparent)
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 600),
-            curve: Curves.easeOutCubic,
-            bottom: _showInstruction && _phase == IsolatorPhase.scanning ? 40 : -200,
-            left: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.85),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.warningOrange.withOpacity(0.5)),
-              ),
-              child: Row(
+          if (_phase == IsolatorPhase.scanning)
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 36,
+              child: Material(
+                color: Colors.transparent,
+                child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.warning_amber, color: AppColors.warningOrange, size: 28),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      "Charger is not powered.\nPlease point your camera at the Isolator switch.",
-                      style: TextStyle(color: Colors.white, fontSize: 14),
+                  ElevatedButton.icon(
+                    onPressed: (_captureInFlight || !_cameraReady) ? null : _captureAndAnalyze,
+                    icon: _captureInFlight
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          )
+                        : const Icon(Icons.camera_alt, color: Colors.black),
+                    label: Text(
+                      _captureInFlight
+                          ? 'Capturing...'
+                          : _cameraReady
+                              ? 'Capture Isolator Photo'
+                              : 'Starting camera...',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.electricBlue,
+                      minimumSize: const Size(double.infinity, 52),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.info_outline, color: AppColors.electricBlue),
-                    onPressed: () => _showIsolatorExample(context),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: _captureInFlight ? null : _pickFromGalleryAndAnalyze,
+                    icon: const Icon(Icons.photo_library_outlined, color: AppColors.electricBlue),
+                    label: const Text(
+                      'Upload from Gallery',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 48),
+                      side: const BorderSide(color: AppColors.electricBlue),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                 ],
               ),
+              ),
             ),
-          ),
 
-          // Analyzing Overlay
-          if (_phase == IsolatorPhase.captured || _phase == IsolatorPhase.resultOn || _phase == IsolatorPhase.resultOff)
+          if (_phase != IsolatorPhase.scanning)
             Center(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 40),
@@ -181,13 +334,6 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                   color: Colors.black87,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppColors.glassBorder),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 20,
-                      spreadRadius: 5,
-                    ),
-                  ],
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -195,7 +341,7 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                   children: [
                     Row(
                       children: [
-                        if (_phase == IsolatorPhase.captured)
+                        if (_phase == IsolatorPhase.analyzing)
                           const SizedBox(
                             width: 16,
                             height: 16,
@@ -210,62 +356,77 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                           const Icon(Icons.error, color: AppColors.dangerRed, size: 20),
                         const SizedBox(width: 12),
                         Text(
-                          _phase == IsolatorPhase.captured
-                              ? "Analyzing Isolator..."
+                          _phase == IsolatorPhase.analyzing
+                              ? 'Analyzing Isolator...'
                               : _phase == IsolatorPhase.resultOn
-                                  ? "Analysis Complete"
-                                  : "Error Found",
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                  ? 'Analysis Complete'
+                                  : 'Isolator OFF',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 20),
-                    _buildChecklistItem("Isolator detected", _step1Done, null),
+                    _buildChecklistItem('Isolator detected', _step1Done, null),
                     const SizedBox(height: 12),
                     _buildChecklistItem(
-                      "Switch position: ${!_step2Done ? '...' : (DiagnosticState().isIsolatorOn ? 'ON' : 'OFF')}",
+                      'Switch position: ${!_step2Done ? '...' : (_switchOn == true ? 'ON' : 'OFF')}',
                       _step2Done,
-                      _step2Done ? (DiagnosticState().isIsolatorOn ? AppColors.successGreen : AppColors.dangerRed) : null,
+                      _step2Done
+                          ? (_switchOn == true ? AppColors.successGreen : AppColors.dangerRed)
+                          : null,
                     ),
-                    
                     if (_phase == IsolatorPhase.resultOff) ...[
                       const SizedBox(height: 24),
                       const Divider(color: Colors.white24),
                       const SizedBox(height: 12),
                       const Text(
-                        "Please flip the Isolator switch back to the ON position.",
+                        'Please flip the isolator switch to the ON position, then capture again.',
                         style: TextStyle(color: AppColors.warningOrange, fontSize: 14),
-                      ),
-                      const SizedBox(height: 16),
-                      // Mock animation of flipping switch
-                      const Center(
-                        child: Icon(Icons.swipe_up, color: Colors.white, size: 40),
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () {
-                            // User flipped it, simulate success
-                            DiagnosticState().setPowerBranchOutcomes(isolatorOn: true, evdbOk: false);
-                            Navigator.pushReplacementNamed(context, "/evdb-detection");
+                            setState(() => _phase = IsolatorPhase.scanning);
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.electricBlue,
                           ),
-                          child: const Text("I have turned it ON", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          child: const Text(
+                            'Capture Again',
+                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                          ),
                         ),
-                      )
+                      ),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton(
+                          onPressed: () async {
+                            _state.setPowerBranchOutcomes(isolatorOn: true, evdbOk: _state.isEvdbOk);
+                            await _navigateToEvdb();
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white70,
+                            side: const BorderSide(color: Colors.white24),
+                          ),
+                          child: const Text('I have turned it ON'),
+                        ),
+                      ),
                     ],
-
                     if (_phase == IsolatorPhase.resultOn) ...[
                       const SizedBox(height: 24),
                       const Text(
-                        "Power confirmed at Isolator.\nProceeding to EVDB check...",
+                        'Power confirmed at isolator.\nProceeding to EVDB check...',
                         style: TextStyle(color: AppColors.successGreen, fontSize: 14),
                         textAlign: TextAlign.center,
                       ),
-                    ]
+                    ],
                   ],
                 ),
               ),

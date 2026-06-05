@@ -29,6 +29,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
   Timer? _tickTimer;
   int _elapsedMs = 0;
   bool _lightSampleInFlight = false;
+  List<double>? _chargerBox;
 
   // Animation Controllers
   late final AnimationController _scannerPulseController;
@@ -83,6 +84,8 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
       }
 
       if (result.success && result.chargerDetected) {
+        _chargerBox = result.chargerBox;
+
         if (result.lightDetected && _isRedOrFlicker(result.lightColor)) {
           setState(() => _phase = DetectionPhase.chargerFound);
           _completeBranch2(result.lightColor);
@@ -93,17 +96,14 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
           _phase = DetectionPhase.chargerFound;
         });
 
-        Timer(const Duration(seconds: 1), () {
-          if (!mounted) return;
-          _startRedLightSearch();
-        });
+        _startRedLightSearch();
       } else {
         // Retry if charger not found
-        Timer(const Duration(seconds: 2), _runDetectionSequence);
+        Timer(const Duration(milliseconds: 800), _runDetectionSequence);
       }
     } catch (e) {
       // Fallback or error handling
-      Timer(const Duration(seconds: 2), _runDetectionSequence);
+      Timer(const Duration(milliseconds: 800), _runDetectionSequence);
     }
   }
 
@@ -162,7 +162,10 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
     _lightSampleInFlight = true;
     try {
       final frame = await _cameraController!.takePicture();
-      final lightResult = await mlService.processChargerRedLight(frame);
+      final lightResult = await mlService.processChargerRedLight(
+        frame,
+        chargerBox: _chargerBox,
+      );
       if (!mounted) return;
 
       if (kDebugMode) {
@@ -200,16 +203,16 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
     });
   }
 
-  void _completeBranch1() {
+  void _completeBranch1() async {
+    _tickTimer?.cancel();
     _state.updateChargerInfo(true, false, "OFF");
     setState(() {
       _phase = DetectionPhase.branch1NoLight;
     });
-    Timer(const Duration(milliseconds: 2000), () {
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, "/isolator-detection");
-      }
-    });
+    _cameraController = null;
+    await CameraSessionManager.instance.forceRelease();
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, "/isolator-detection");
   }
 
   void _changeSimulatedBranch(int branchId) {

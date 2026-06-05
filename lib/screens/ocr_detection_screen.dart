@@ -9,6 +9,7 @@ import '../widgets/glass_container.dart';
 import '../widgets/pulsing_glow.dart';
 import '../widgets/camera_viewfinder.dart';
 import '../services/integration_controller.dart';
+import '../services/sharp_capture.dart';
 import 'package:camera/camera.dart';
 
 enum OcrState { instruction, capturing, shakeDetected, blurDetected, processing, success }
@@ -32,6 +33,8 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   late final AnimationController _rotationController;
   late final AnimationController _checkmarkController;
   CameraController? _cameraController;
+  bool _cameraReady = false;
+  bool _captureInFlight = false;
   
   // Store extracted OCR data
   String _extractedModel = 'Unknown';
@@ -77,6 +80,8 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
     setState(() {
       _currentState = OcrState.capturing;
       _stability = 85.0;
+      _cameraReady = false;
+      _captureInFlight = false;
     });
 
     // Simulate fluctuating camera stability
@@ -109,143 +114,120 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   }
 
   Future<void> _triggerProcessing() async {
-    _stabilityTimer?.cancel();
-    
-    final integrationController = IntegrationController();
-    
-    // Take real picture
-    if (_cameraController != null && _cameraController!.value.isInitialized) {
-      try {
-        final xfile = await _cameraController!.takePicture();
-        final file = File(xfile.path);
-        
-        setState(() {
-          _currentState = OcrState.processing;
-        });
-        _rotationController.repeat();
-        
-        final result = await integrationController.executeOcrScan(file);
-        
-        if (mounted) {
-          _rotationController.stop();
-          if (result.success) { // BYPASSED FOR TESTING
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text("OCR extracted: '${result.extractedText}'"),
-              duration: const Duration(seconds: 2),
-            ));
-            setState(() {
-              _currentState = OcrState.success;
-              _extractedBrand          = result.brand         ?? 'Unknown';
-              _extractedModel          = result.modelName.isNotEmpty ? result.modelName : 'Unknown';
-              _extractedSerialNumber   = result.serialNumber.isNotEmpty ? result.serialNumber : 'Unknown';
-              _extractedInputVoltage   = result.inputVoltage  ?? 'Unknown';
-              _extractedOutputCurrent  = result.outputCurrent ?? 'Unknown';
-            });
-            _checkmarkController.forward();
-            
-            final state = DiagnosticState();
-            state.updateOcr(
-              result.modelName,
-              result.serialNumber,
-              brandVal: result.brand,
-              voltage:  result.inputVoltage,
-              current:  result.outputCurrent,
-            );
-                        Timer(const Duration(seconds: 2), () {
-                          if (mounted) {
-                            Navigator.pushReplacementNamed(context, "/charger-detection");
-                          }
-                        });
-                      } else {
-              setState(() {
-                _currentState = OcrState.capturing;
-                // Reset extracted data on failure
-                _extractedModel = 'Unknown';
-                _extractedSerialNumber = 'Unknown';
-              });
-  
-  final String errorMsg;
-  if (result.quotaExceeded) {
-    errorMsg = result.reason ??
-        "OCR service quota exceeded. Wait about a minute, then try again.";
-  } else if (result.reason != null && result.reason!.isNotEmpty) {
-    errorMsg = result.reason!;
-  } else if (result.extractedText.startsWith('OCR failed:') ||
-      result.extractedText.startsWith('Server error:')) {
-    errorMsg = result.extractedText.contains('Connection') ||
-            result.extractedText.contains('SocketException')
-        ? "Cannot reach the server. Check Wi‑Fi and that the backend is running on your PC."
-        : result.extractedText;
-  } else if (result.isBlurry) {
-    errorMsg =
-        "Image is too blurry. Please ensure the plate is clearly in focus.";
-  } else if (result.partialExtraction) {
-    errorMsg =
-        "Could not read the model or serial number. Move closer and improve lighting.";
-  } else {
-    errorMsg = "Could not read the plate. Please try again.";
-  }
-  
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(errorMsg),
-    duration: const Duration(seconds: 3),
-  ));
-            Future.delayed(const Duration(seconds: 3), () {
-              if (mounted) {
-                _startCamera();
-              }
-            });
-          }
-        }
-      } catch (e, stack) {
-        print("====== OCR ERROR: $e");
-        print(stack);
-        if (mounted) {
-          _rotationController.stop();
-          // AFTER
-setState(() {
-  _currentState = OcrState.capturing;
-});
-ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-  content: Text("Error: $e. Please try again."),
-  duration: const Duration(seconds: 2),
-));
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted) {
-              _startCamera();
-            }
-          });
-        }
-      }
-    } else {
-      // Fallback for emulator without camera
-      Timer(const Duration(seconds: 2), () {
-        if (mounted) {
-          _rotationController.stop();
-          setState(() {
-            _currentState = OcrState.success;
-            // Use fallback test data for emulator
-            _extractedModel = "Tesla Wall Connector Gen 3";
-            _extractedSerialNumber = "TWC-2024-A8F3E2";
-          });
-          _checkmarkController.forward();
-          
-          final state = DiagnosticState();
-          state.updateOcr(
-          "Tesla Wall Connector Gen 3",
-          "TWC-2024-A8F3E2",
-          brandVal: "Tesla",
-          voltage:  "230V AC",
-          current:  "32A",
-        );
+    if (_captureInFlight) return;
+    if (!_cameraReady ||
+        _cameraController == null ||
+        !_cameraController!.value.isInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera is still starting — please wait a moment.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
-          Timer(const Duration(seconds: 2), () {
-            if (mounted) {
-              Navigator.pushReplacementNamed(context, "/charger-detection");
-            }
-          });
+    _stabilityTimer?.cancel();
+    setState(() {
+      _captureInFlight = true;
+      _currentState = OcrState.processing;
+    });
+    _rotationController.repeat();
+
+    final integrationController = IntegrationController();
+
+    try {
+      final xfile = await SharpCapture.takePicture(_cameraController!);
+      final file = File(xfile.path);
+      final result = await integrationController.executeOcrScan(file);
+
+      if (!mounted) return;
+      _rotationController.stop();
+
+      if (result.success) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("OCR extracted: '${result.extractedText}'"),
+          duration: const Duration(seconds: 2),
+        ));
+        setState(() {
+          _currentState = OcrState.success;
+          _extractedBrand = result.brand ?? 'Unknown';
+          _extractedModel = result.modelName.isNotEmpty ? result.modelName : 'Unknown';
+          _extractedSerialNumber =
+              result.serialNumber.isNotEmpty ? result.serialNumber : 'Unknown';
+          _extractedInputVoltage = result.inputVoltage ?? 'Unknown';
+          _extractedOutputCurrent = result.outputCurrent ?? 'Unknown';
+        });
+        _checkmarkController.forward();
+
+        final state = DiagnosticState();
+        state.updateOcr(
+          result.modelName,
+          result.serialNumber,
+          brandVal: result.brand,
+          voltage: result.inputVoltage,
+          current: result.outputCurrent,
+        );
+        Timer(const Duration(seconds: 2), () {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, "/charger-detection");
+          }
+        });
+      } else {
+        setState(() {
+          _currentState = OcrState.capturing;
+          _extractedModel = 'Unknown';
+          _extractedSerialNumber = 'Unknown';
+        });
+
+        final String errorMsg;
+        if (result.quotaExceeded) {
+          errorMsg = result.reason ??
+              "OCR service quota exceeded. Wait about a minute, then try again.";
+        } else if (result.reason != null && result.reason!.isNotEmpty) {
+          errorMsg = result.reason!;
+        } else if (result.extractedText.startsWith('OCR failed:') ||
+            result.extractedText.startsWith('Server error:')) {
+          errorMsg = result.extractedText.contains('Connection') ||
+                  result.extractedText.contains('SocketException')
+              ? "Cannot reach the server. Check Wi‑Fi and that the backend is running on your PC."
+              : result.extractedText;
+        } else if (result.isBlurry) {
+          errorMsg =
+              "Image is too blurry. Please ensure the plate is clearly in focus.";
+        } else if (result.partialExtraction) {
+          errorMsg =
+              "Could not read the model or serial number. Move closer and improve lighting.";
+        } else {
+          errorMsg = "Could not read the plate. Please try again.";
         }
-      });
+
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(errorMsg),
+          duration: const Duration(seconds: 3),
+        ));
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) _startCamera();
+        });
+      }
+    } catch (e, stack) {
+      print("====== OCR ERROR: $e");
+      print(stack);
+      if (mounted) {
+        _rotationController.stop();
+        setState(() {
+          _currentState = OcrState.capturing;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Error: $e. Please try again."),
+          duration: const Duration(seconds: 2),
+        ));
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) _startCamera();
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _captureInFlight = false);
     }
   }
 
@@ -375,8 +357,12 @@ ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         
         return CameraViewfinder(
           aspectRatio: 4 / 3,
+          highQualityCapture: true,
           onControllerCreated: (controller) {
             _cameraController = controller;
+          },
+          onReady: () {
+            if (mounted) setState(() => _cameraReady = true);
           },
           fallbackBuilder: (context) {
             return Stack(
@@ -622,11 +608,21 @@ ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed: _triggerProcessing,
-              icon: const Icon(Icons.camera_alt, color: Colors.black),
-              label: const Text(
-                "Capture Photo",
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+              onPressed: (_captureInFlight || !_cameraReady) ? null : _triggerProcessing,
+              icon: _captureInFlight
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                  : const Icon(Icons.camera_alt, color: Colors.black),
+              label: Text(
+                _captureInFlight
+                    ? "Capturing..."
+                    : _cameraReady
+                        ? "Capture Photo"
+                        : "Starting camera...",
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.electricBlue,

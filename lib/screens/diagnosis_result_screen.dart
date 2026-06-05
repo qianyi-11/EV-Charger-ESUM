@@ -36,8 +36,11 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     // Trigger Firebase Telemetry Sync in background
     _syncTelemetry();
     
-    // Simulate auto contacting technician if required
     final info = _globalState.database[widget.errorCode] ?? _globalState.database["charger-issue"]!;
+    final displayConfidence = _globalState.scanConfidence > 0
+        ? _globalState.scanConfidence
+        : info.confidence;
+
     if (info.autoContact) {
       _isContacting = true;
       _contactTimer = Timer(const Duration(seconds: 2), () {
@@ -67,9 +70,16 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
 
     _confidenceController.addListener(() {
       setState(() {
-        _animatedConfidence = curve.value * info.confidence;
+        _animatedConfidence = curve.value * displayConfidence;
       });
     });
+  }
+
+  List<String> _displayFindings(DiagnosisInfo info) {
+    if (_globalState.scanFindings.isNotEmpty) {
+      return _globalState.scanFindings;
+    }
+    return info.findings;
   }
 
   @override
@@ -270,14 +280,16 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
                       ],
                     ),
                     const SizedBox(height: 12),
-                    const Text(
-                      "Analysis findings & circuit telemetry diagnostics:",
-                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                    Text(
+                      _globalState.scanFindings.isNotEmpty
+                          ? "EVDB scan findings from your photo:"
+                          : "Analysis findings & circuit telemetry diagnostics:",
+                      style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     ...List.generate(
-                      info.findings.length,
-                      (index) => _buildCheckBulletItem(info.findings[index], index),
+                      _displayFindings(info).length,
+                      (index) => _buildCheckBulletItem(_displayFindings(info)[index], index),
                     ),
                   ],
                 ),

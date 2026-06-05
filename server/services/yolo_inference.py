@@ -2,9 +2,23 @@ import sys
 import json
 import os
 
+_MODEL = None
+_MODEL_PATH = None
+
+
+def _get_model(model_path):
+    global _MODEL, _MODEL_PATH
+    if _MODEL is not None and _MODEL_PATH == model_path:
+        return _MODEL
+    from ultralytics import YOLO
+    _MODEL = YOLO(model_path)
+    _MODEL_PATH = model_path
+    return _MODEL
+
+
 def run_inference(image_path, model_path):
     try:
-        from ultralytics import YOLO
+        model = _get_model(model_path)
     except ImportError:
         # Graceful fallback warning if ultralytics is not installed yet
         return {
@@ -28,11 +42,8 @@ def run_inference(image_path, model_path):
         }
 
     try:
-        # Load the custom trained model (YOLOv8/v11 .pt weights)
-        model = YOLO(model_path)
-        
-        # Run inference
-        results = model(image_path, verbose=False)
+        # Run inference (model stays cached for repeated calls in the same process)
+        results = model(image_path, verbose=False, imgsz=480)
         
         detections = []
         for result in results:

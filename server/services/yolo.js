@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { parsePythonJson, runPythonScript } from './python_util.js';
+import { runYoloViaWorker } from './vision_worker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,7 +14,17 @@ const SCRIPT_PATH = path.join(__dirname, 'yolo_inference.py');
  * Runs YOLOv8/11 object detection using the custom weights file.
  * Saves the buffer as a temporary file, invokes python child process, and parses JSON output.
  */
-export function runYoloInference(imageBuffer) {
+export function runYoloInference(imageBuffer, options = {}) {
+  return runYoloViaWorker(imageBuffer, options).catch(() => runYoloInferenceCold(imageBuffer));
+}
+
+/** Tuned YOLO pass for small isolator switches (640px, lower confidence). */
+export function runIsolatorYoloInference(imageBuffer) {
+  return runYoloInference(imageBuffer, { isolator: true });
+}
+
+/** Cold-start fallback: spawns a one-shot Python process (slow — loads model each time). */
+function runYoloInferenceCold(imageBuffer) {
   return new Promise((resolve) => {
     // 1. Create a unique temporary filename
     const tempDir = path.join(__dirname, '..', 'temp');
