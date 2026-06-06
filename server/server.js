@@ -4,7 +4,6 @@ import multer from 'multer';
 import dotenv from 'dotenv';
 import {
   processOcr,
-  ocrEvdbBreakerLabels,
   chatAssistant
 } from './services/gemini.js';
 import { runYoloInference, runIsolatorYoloInference } from './services/yolo.js';
@@ -116,39 +115,27 @@ app.post('/api/vision/analyze-evdb', upload.single('image'), async (req, res) =>
       return res.status(400).json({ error: 'No image file uploaded' });
     }
     
-    // Extract specs passed from Flutter
+    // Spec plate voltage only — phase validation (no breaker amp OCR)
     const specsContext = {
       inputVoltage: req.body.inputVoltage || null,
-      outputCurrent: req.body.outputCurrent || null,
     };
     
     console.log('[Express DB Route] Specs context received:', specsContext);
     
-    console.log('[Express DB Route] YOLO MCB/RCCB/Type-A + spec validation...');
+    console.log('[Express DB Route] YOLO MCB/RCCB/Type-A + phase/voltage validation...');
     const yoloResult = await runYoloInference(req.file.buffer);
     const detections = yoloResult.detections || [];
-
-    const mcbPresent = detections.some((d) => (d.class || '').toLowerCase().includes('mcb'));
-    const rccbPresent = detections.some((d) => (d.class || '').toLowerCase().includes('rccb'));
-
-    let ocrResult = null;
-    if (mcbPresent && rccbPresent && specsContext.outputCurrent) {
-      try {
-        ocrResult = await ocrEvdbBreakerLabels(req.file.buffer);
-      } catch (ocrErr) {
-        console.warn('[Express DB Route] EVDB OCR skipped:', ocrErr.message);
-      }
-    }
 
     const result = analyzeEvdbCompliance({
       detections,
       specsContext,
-      ocrResult,
     });
 
     console.log(
       `[Express DB Route] compliant=${result.isCompliant} retake=${result.retakeRequired} ` +
-      `mcb=${result.mcbDetected} rccb=${result.rccbDetected} typeA=${result.typeADetected}`,
+      `mcb=${result.mcbDetected} rccb=${result.rccbDetected} typeA=${result.typeADetected} ` +
+      `expectedPhase=${result.expectedPhase} mcbPoles=${result.mcbPoles}(${result.mcbRatio?.toFixed?.(2) ?? 'n/a'}) ` +
+      `rccbPoles=${result.rccbPoles}(${result.rccbRatio?.toFixed?.(2) ?? 'n/a'})`,
     );
 
     res.json({
@@ -157,7 +144,7 @@ app.post('/api/vision/analyze-evdb', upload.single('image'), async (req, res) =>
       yoloSuccess: yoloResult.success,
       warning: yoloResult.warning,
       specsUsed: specsContext,
-      method: 'yolo_spec_validation',
+      method: 'yolo_phase_voltage_validation',
     });
   } catch (error) {
     res.status(500).json({ error: error.message || 'EVDB compliance evaluation failed' });
@@ -443,6 +430,7 @@ app.post('/api/vision/analyze-pulses', upload.single('video'), async (req, res) 
     res.json({
       success: result.success,
       blinkCount: result.blinkCount || 0,
+      pattern: result.pattern || null,
       correlatedErrorCode: result.correlatedErrorCode || 'analysis-failed',
       confidence: result.confidence || 0.0,
     });

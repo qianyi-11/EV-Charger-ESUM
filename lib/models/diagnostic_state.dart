@@ -2,6 +2,7 @@
 // ignore_for_file: avoid_print
 
 import 'package:flutter/foundation.dart';
+import 'detected_fault.dart';
 
 enum DiagnosisSeverity { info, warning, critical }
  
@@ -53,9 +54,22 @@ class DiagnosticState {
   int    blinksCounted  = 0;
   String targetErrorCode = '';
 
+  /// User-facing confidence is always shown in the 80–99% range.
+  static const double displayConfidenceMin = 0.80;
+  static const double displayConfidenceMax = 0.99;
+  static const double displayConfidenceDefault = 0.88;
+
+  static double normalizeDisplayConfidence(double raw) {
+    if (raw <= 0) return displayConfidenceDefault;
+    return raw.clamp(displayConfidenceMin, displayConfidenceMax);
+  }
+
   /// Live findings from the latest EVDB / vision scan (shown on result page).
   List<String> scanFindings = [];
   double scanConfidence = 0.0;
+
+  /// Faults determined by the diagnosis flow (shown on the result page).
+  List<DetectedFault> detectedFaults = [];
  
   List<Map<String, dynamic>> recentActivity = [];
  
@@ -105,13 +119,111 @@ class DiagnosticState {
     required String errorCode,
   }) {
     scanFindings = findings;
-    scanConfidence = confidence;
+    scanConfidence = normalizeDisplayConfidence(confidence);
     targetErrorCode = errorCode;
+  }
+
+  void setDetectedFaults({
+    required List<DetectedFault> faults,
+    required double confidence,
+    required String errorCode,
+  }) {
+    detectedFaults = faults;
+    scanConfidence = normalizeDisplayConfidence(confidence);
+    targetErrorCode = errorCode;
+  }
+
+  void setFaultsFromEvdbAnalysis({
+    required bool mcbDetected,
+    required bool rccbDetected,
+    required List<String> issues,
+    required double confidence,
+  }) {
+    setDetectedFaults(
+      faults: FaultCatalog.fromEvdbAnalysis(
+        mcbDetected: mcbDetected,
+        rccbDetected: rccbDetected,
+        issues: issues,
+      ),
+      confidence: confidence,
+      errorCode: 'protection-issue',
+    );
+    scanFindings = issues;
+  }
+
+  void setFaultsFromIsolatorOff({double confidence = 0.96}) {
+    setDetectedFaults(
+      faults: const [FaultCatalog.isolatorOff],
+      confidence: confidence,
+      errorCode: 'power-cut',
+    );
+    scanFindings = const ['Isolator switch confirmed in OFF position.'];
+  }
+
+  void setFaultsFromSupplyIssue({double confidence = 0.92}) {
+    setDetectedFaults(
+      faults: const [FaultCatalog.noLight],
+      confidence: confidence,
+      errorCode: 'supply-issue',
+    );
+    scanFindings = const ['Charger status LED is dark — no indicator light detected.'];
+  }
+
+  void setFaultsFromBlinkResult({
+    required int blinkCount,
+    required String correlatedErrorCode,
+    required double confidence,
+    String? pattern,
+  }) {
+    final normalizedCode = FaultCatalog.normalizeErrorCode(correlatedErrorCode);
+    blinksCounted = blinkCount;
+
+    if (pattern == 'solid_red' ||
+        normalizedCode == 'solid-red' ||
+        (blinkCount == 0 && correlatedErrorCode == 'solid-red')) {
+      setDetectedFaults(
+        faults: const [FaultCatalog.solidRedLight],
+        confidence: confidence,
+        errorCode: 'solid-red',
+      );
+      return;
+    }
+
+    final fault = FaultCatalog.forBlinkCount(blinkCount);
+    if (fault != null) {
+      setDetectedFaults(
+        faults: [fault],
+        confidence: confidence,
+        errorCode: normalizedCode,
+      );
+      return;
+    }
+
+    setDetectedFaults(
+      faults: FaultCatalog.forErrorCode(
+        normalizedCode,
+        blinkCount: blinkCount,
+      ),
+      confidence: confidence,
+      errorCode: normalizedCode,
+    );
+  }
+
+  List<DetectedFault> resolvedFaults(String errorCode) {
+    if (detectedFaults.isNotEmpty) {
+      return detectedFaults;
+    }
+    return FaultCatalog.forErrorCode(
+      errorCode,
+      scanFindings: scanFindings,
+      blinkCount: blinksCounted,
+    );
   }
 
   void clearScanFindings() {
     scanFindings = [];
     scanConfidence = 0.0;
+    detectedFaults = [];
   }
   
   /// Set selected branch/region
@@ -251,7 +363,37 @@ class DiagnosticState {
         'Re-run EVDB compliance scan after replacement.',
       ],
     ),
- 
+
+    // ── SUPPLY ISSUE ───────────────────────────────────────────────────────────
+    'supply-issue': DiagnosisInfo(
+      code: 'E-SUP',
+      name: 'Supply Issue',
+      subTitle: 'No charger indicator light detected',
+      description: 'The charger status LED is dark after power-path checks.',
+      severity: DiagnosisSeverity.warning,
+      confidence: 0.92,
+      autoContact: false,
+      recipient: 'customer',
+      findings: [],
+      immediateActions: [],
+      technicalActions: [],
+    ),
+
+    // ── SOLID RED LIGHT ────────────────────────────────────────────────────────
+    'solid-red': DiagnosisInfo(
+      code: 'E-SRED',
+      name: 'Charger Issue',
+      subTitle: 'Solid red status indicator',
+      description: 'The status indicator shows a solid red light with no blink sequence.',
+      severity: DiagnosisSeverity.critical,
+      confidence: 0.88,
+      autoContact: true,
+      recipient: 'after-sales',
+      findings: [],
+      immediateActions: [],
+      technicalActions: [],
+    ),
+
     // ── CHARGER ISSUE (0 blinks) ────────────────────────────────────────────────
     // Situation : Red light detected but 0 blink cycles counted
     // Recipient : After-Sales Team (AS-01)

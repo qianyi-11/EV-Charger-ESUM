@@ -154,6 +154,12 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
         await Future.delayed(const Duration(seconds: 2));
         if (!mounted) return;
         await _navigateToEvdb();
+      } else {
+        _state.setFaultsFromIsolatorOff(confidence: 0.96);
+        _state.addDiagnosticRecord('power-cut');
+        await Future.delayed(const Duration(milliseconds: 1800));
+        if (!mounted) return;
+        await _goToDiagnosis('power-cut');
       }
     } catch (e) {
       if (kDebugMode) {
@@ -173,6 +179,13 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
     await CameraSessionManager.instance.forceRelease();
     if (!mounted) return;
     Navigator.pushReplacementNamed(context, "/evdb-detection");
+  }
+
+  Future<void> _goToDiagnosis(String errorCode) async {
+    _cameraController = null;
+    await CameraSessionManager.instance.forceRelease();
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, '/diagnosis/$errorCode');
   }
 
   void _showIsolatorExample(BuildContext context) {

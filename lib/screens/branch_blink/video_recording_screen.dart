@@ -6,6 +6,7 @@ import '../../theme/app_theme.dart';
 import '../../models/diagnostic_state.dart';
 import '../../widgets/camera_viewfinder.dart';
 import '../../services/ml_model_service.dart';
+import '../../services/camera_session_manager.dart';
 
 enum RecordingPhase { preparing, recording, processing, complete }
 
@@ -26,11 +27,14 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   String? _cameraError;
   bool _isProcessing = false;
   bool _isStuck = false;
+  bool _cameraReady = false;
+  bool _recordingStarted = false;
 
   late AnimationController _pulseController;
 
   int _peakCount = 0;
   String _detectedPattern = "";
+  bool _resultIsSolidRed = false;
 
   @override
   void initState() {
@@ -48,9 +52,9 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   void _onCameraReady(CameraController controller) {
     _cameraController = controller;
     if (!mounted) return;
-    setState(() => _cameraError = null);
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) _startRecording();
+    setState(() {
+      _cameraError = null;
+      _cameraReady = true;
     });
   }
 
@@ -63,11 +67,15 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
   }
 
   Future<void> _startRecording() async {
+    if (_recordingStarted) return;
+
     final controller = _cameraController;
     if (controller == null || !controller.value.isInitialized) {
       setState(() => _cameraError = 'Camera not ready for recording.');
       return;
     }
+
+    _recordingStarted = true;
 
     try {
       if (!controller.value.isRecordingVideo) {
@@ -137,6 +145,8 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
       _cameraError = null;
       _peakCount = 0;
       _detectedPattern = '';
+      _resultIsSolidRed = false;
+      _recordingStarted = false;
     });
     _stuckDetectionTimer?.cancel();
     _stuckDetectionTimer = Timer(const Duration(seconds: 30), () {
@@ -148,6 +158,7 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
 
   /// Maps server codes like blink-7-very-rapid → blink-7 for diagnosis lookup.
   String _normalizeBlinkErrorCode(String code) {
+    if (code == 'solid-red') return 'solid-red';
     final match = RegExp(r'^blink-(\d+)').firstMatch(code);
     if (match != null) return 'blink-${match.group(1)}';
     return code;
@@ -242,40 +253,75 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
       _isProcessing = false;
     });
 
-    print("[Video Recording] 📊 Result received: blinkCount=${blinkResult.blinkCount}, success=${blinkResult.success}");
+    print("[Video Recording] 📊 Result received: blinkCount=${blinkResult.blinkCount}, success=${blinkResult.success}, pattern=${blinkResult.pattern}");
 
-    if (!blinkResult.success) {
+    final isSolidRed = blinkResult.isSolidRed;
+
+    if (!blinkResult.success && !isSolidRed) {
       _handleDetectionFailure(
         blinkResult.errorMessage ?? 'Blink detection failed',
       );
       return;
     }
 
-    final state = DiagnosticState();
-    state.blinksCounted = blinkResult.blinkCount;
-
-    for (var i = 0; i <= blinkResult.blinkCount; i++) {
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (!mounted) return;
+    if (isSolidRed) {
       setState(() {
-        _peakCount = i;
-        if (i == blinkResult.blinkCount) {
-          _detectedPattern = '${blinkResult.blinkCount} blinks detected';
-        }
+        _resultIsSolidRed = true;
+        _peakCount = 0;
+        _detectedPattern = 'Solid red light detected';
+        _phase = RecordingPhase.complete;
+      });
+    } else {
+      _resultIsSolidRed = false;
+      for (var i = 0; i <= blinkResult.blinkCount; i++) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (!mounted) return;
+        setState(() {
+          _peakCount = i;
+          if (i == blinkResult.blinkCount) {
+            _detectedPattern = '${blinkResult.blinkCount} blinks detected';
+          }
+        });
+      }
+
+      setState(() {
+        _phase = RecordingPhase.complete;
       });
     }
-
-    setState(() {
-      _phase = RecordingPhase.complete;
-    });
 
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
 
-    // Server may return blink-7-very-rapid; diagnosis DB uses blink-7.
-    final errorCode = _normalizeBlinkErrorCode(blinkResult.correlatedErrorCode);
+    await _navigateToDiagnosis(blinkResult);
+  }
+
+  Future<void> _navigateToDiagnosis(BlinkDetectionResult blinkResult) async {
+    final isSolidRed = blinkResult.isSolidRed;
+    final errorCode = isSolidRed
+        ? 'solid-red'
+        : _normalizeBlinkErrorCode(blinkResult.correlatedErrorCode);
+
+    final state = DiagnosticState();
+    state.setFaultsFromBlinkResult(
+      blinkCount: isSolidRed ? 0 : blinkResult.blinkCount,
+      correlatedErrorCode: isSolidRed ? 'solid-red' : blinkResult.correlatedErrorCode,
+      confidence: blinkResult.confidence > 0 ? blinkResult.confidence : 0.88,
+      pattern: isSolidRed ? 'solid_red' : blinkResult.pattern,
+    );
     state.addDiagnosticRecord(errorCode);
-    Navigator.pushReplacementNamed(context, "/diagnosis/$errorCode");
+
+    _stuckDetectionTimer?.cancel();
+    _cameraController = null;
+    await CameraSessionManager.instance.forceRelease();
+
+    if (!mounted) return;
+
+    try {
+      await Navigator.pushReplacementNamed(context, '/diagnosis/$errorCode');
+    } catch (e) {
+      if (!mounted) return;
+      _handleDetectionFailure('Could not open diagnosis screen: $e');
+    }
   }
 
   @override
@@ -365,10 +411,32 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                 ),
                 child: Text(
                   _phase == RecordingPhase.preparing
-                      ? "Preparing camera..."
-                      : "Center the blinking light inside the box and hold still.",
+                      ? (_cameraReady
+                          ? 'Point the camera at the charger indicator light, then tap Start Recording.'
+                          : 'Preparing camera...')
+                      : 'Center the blinking light inside the box and hold still.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+
+          if (_phase == RecordingPhase.preparing && _cameraReady)
+            Positioned(
+              left: 24,
+              right: 24,
+              bottom: 48,
+              child: ElevatedButton.icon(
+                onPressed: _startRecording,
+                icon: const Icon(Icons.fiber_manual_record, color: Colors.black),
+                label: const Text(
+                  'Start Recording',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.electricBlue,
+                  minimumSize: const Size(double.infinity, 52),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
             ),
@@ -446,10 +514,17 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text("Peaks Counted:", style: TextStyle(color: Colors.white70)),
                         Text(
-                          "$_peakCount",
-                          style: const TextStyle(color: AppColors.electricBlue, fontWeight: FontWeight.bold, fontSize: 18),
+                          _resultIsSolidRed ? 'Light Status:' : 'Peaks Counted:',
+                          style: const TextStyle(color: Colors.white70),
+                        ),
+                        Text(
+                          _resultIsSolidRed ? 'Solid Red' : '$_peakCount',
+                          style: const TextStyle(
+                            color: AppColors.electricBlue,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
                         ),
                       ],
                     ),

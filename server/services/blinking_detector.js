@@ -81,7 +81,12 @@ async function extractFramesAndDetectBlinks(videoPath) {
         resolve({
           success: result.success || false,
           blinkCount: result.blink_count || 0,
-          correlatedErrorCode: generateErrorCode(result.blink_count || 0),
+          pattern: result.pattern || null,
+          correlatedErrorCode: generateErrorCode(
+            result.blink_count || 0,
+            result.pattern,
+            result.success,
+          ),
           confidence: result.confidence || 0.0,
         });
       } catch (error) {
@@ -98,16 +103,20 @@ async function extractFramesAndDetectBlinks(videoPath) {
 }
 
 /**
- * Generate error code based on blink count
+ * Generate error code based on blink count and detected pattern
  */
-function generateErrorCode(blinkCount) {
-  if (blinkCount === 0) {
-    return 'solid-red';  // No blinking = solid red light
-  } else if (blinkCount >= 1 && blinkCount <= 3) {
-    return `blink-${blinkCount}`;
-  } else if (blinkCount >= 4 && blinkCount <= 6) {
-    return `blink-${blinkCount}-rapid`;
-  } else {
-    return `blink-${blinkCount}-very-rapid`;
+function generateErrorCode(blinkCount, pattern, success) {
+  if (pattern === 'solid_red' || (blinkCount === 0 && pattern !== 'no_red' && success)) {
+    return 'solid-red';
   }
+  if (blinkCount === 0) {
+    return 'no-red-detected';
+  }
+  if (blinkCount >= 1 && blinkCount <= 3) {
+    return `blink-${blinkCount}`;
+  }
+  if (blinkCount >= 4 && blinkCount <= 6) {
+    return `blink-${blinkCount}-rapid`;
+  }
+  return `blink-${blinkCount}-very-rapid`;
 }

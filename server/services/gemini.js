@@ -152,63 +152,6 @@ Do not return null unless the field is completely absent or unreadable.`,
 }
 
 /**
- * 2. EVDB BREAKER LABEL OCR
- * Reads MCB/RCCB amp ratings from EVDB panel photo when YOLO found the components.
- */
-export async function ocrEvdbBreakerLabels(imageBuffer) {
-  if (!ai) {
-    return {
-      success: true,
-      detectedMcbRating: '32A',
-      detectedRccbRating: '40A',
-      confidence: 0.9,
-    };
-  }
-
-  try {
-    const response = await ai.models.generateContent({
-      model: VISION_MODEL,
-      contents: [
-        bufferToGenerativePart(imageBuffer),
-        `You are an electrical inspector reading labels on an EV Distribution Board (EVDB).
-Read the printed current ratings on the MCB and RCCB breakers visible in this image.
-Return what you can read; use Unknown for any rating you cannot determine.`,
-      ],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'OBJECT',
-          properties: {
-            detectedMcbRating: {
-              type: 'STRING',
-              description: 'MCB amp rating e.g. 32A, 40A, or Unknown',
-            },
-            detectedRccbRating: {
-              type: 'STRING',
-              description: 'RCCB amp rating e.g. 40A, 63A, or Unknown',
-            },
-            confidence: { type: 'NUMBER' },
-          },
-          required: ['detectedMcbRating', 'detectedRccbRating', 'confidence'],
-        },
-      },
-    });
-
-    const data = JSON.parse(response.text.trim());
-    return { success: true, ...data };
-  } catch (error) {
-    console.error('[Gemini API Error] ocrEvdbBreakerLabels failed:', error);
-    return {
-      success: false,
-      detectedMcbRating: 'Unknown',
-      detectedRccbRating: 'Unknown',
-      confidence: 0,
-      reason: error.message,
-    };
-  }
-}
-
-/**
  * 3. AI CONVERSATIONAL ASSISTANT
  * Answers technical questions about EV chargers and diagnostics.
  */

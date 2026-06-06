@@ -178,10 +178,11 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                   result.errorMessage!,
               ];
 
-        _state.setScanFindings(
-          findings: findings,
+        _state.setFaultsFromEvdbAnalysis(
+          mcbDetected: result.mcbDetected,
+          rccbDetected: result.rccbDetected,
+          issues: findings,
           confidence: result.confidence,
-          errorCode: errorCode,
         );
         _state.addDiagnosticRecord(errorCode);
 
@@ -205,6 +206,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
         isSolidRedLight: false,
         flashCount: 0,
       );
+      _state.setFaultsFromSupplyIssue(confidence: 0.92);
       await _goToDiagnosis(decision.errorCode);
     } catch (e) {
       if (kDebugMode) {
@@ -299,11 +301,10 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                         ),
                       ],
                     ),
-                    if (_state.inputVoltage.isNotEmpty || _state.outputCurrent.isNotEmpty) ...[
+                    if (_state.inputVoltage.isNotEmpty) ...[
                       const SizedBox(height: 10),
                       Text(
-                        'Spec plate: ${_state.inputVoltage.isNotEmpty ? _state.inputVoltage : "?"}'
-                        '${_state.outputCurrent.isNotEmpty ? " / ${_state.outputCurrent}" : ""}',
+                        'Spec plate voltage: ${_state.inputVoltage}',
                         style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
                       ),
                     ],
@@ -420,7 +421,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                     const SizedBox(height: 8),
                     _checkItem('Type A symbol check', _stepTypeA),
                     const SizedBox(height: 8),
-                    _checkItem('Spec compliance (phase & rating)', _stepSpecs),
+                    _checkItem('Spec compliance (phase & voltage)', _stepSpecs),
                     if (_phase == EvdbPhase.retake) ...[
                       const SizedBox(height: 16),
                       Text(

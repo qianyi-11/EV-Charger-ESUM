@@ -71,6 +71,7 @@ class BlinkDetectionResult {
   final int blinkCount;
   final String correlatedErrorCode;
   final double confidence;
+  final String? pattern;
   final String? errorMessage;
 
   BlinkDetectionResult({
@@ -78,8 +79,13 @@ class BlinkDetectionResult {
     required this.blinkCount,
     required this.correlatedErrorCode,
     required this.confidence,
+    this.pattern,
     this.errorMessage,
   });
+
+  bool get isSolidRed =>
+      pattern == 'solid_red' ||
+      correlatedErrorCode == 'solid-red';
 }
 
 /// The result returned from analyzing the rotary isolator switch.
@@ -493,6 +499,7 @@ class MlModelService {
               blinkCount: json['blinkCount'] ?? 0,
               correlatedErrorCode: json['correlatedErrorCode'] ?? "unknown",
               confidence: (json['confidence'] ?? 0.0).toDouble(),
+              pattern: json['pattern']?.toString(),
             );
             
             if (kDebugMode) {
@@ -612,12 +619,9 @@ class MlModelService {
           if (state.inputVoltage.isNotEmpty) {
             request.fields['inputVoltage'] = state.inputVoltage;
           }
-          if (state.outputCurrent.isNotEmpty) {
-            request.fields['outputCurrent'] = state.outputCurrent;
-          }
           
           if (kDebugMode) {
-            print("[ML Service] EVDB upload with specs: inputVoltage=${state.inputVoltage}, outputCurrent=${state.outputCurrent}");
+            print("[ML Service] EVDB upload with spec voltage: inputVoltage=${state.inputVoltage}");
           }
           
           final response = await request.send();

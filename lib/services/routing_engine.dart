@@ -1,6 +1,7 @@
 enum FaultType {
   powerCut,
   protectionIssue,
+  supplyIssue,
   chargerIssue,
   installationIssue,
   manualError,
@@ -55,6 +56,14 @@ class RoutingEngine {
           errorCode: "protection-issue",
         );
       }
+
+      return RoutingDecision(
+        faultType: FaultType.supplyIssue,
+        directive: ActionDirective.showCustomerPrompt,
+        actionDescription:
+            "Advise customer to check whether the main breaker in the EVDB has tripped.",
+        errorCode: "supply-issue",
+      );
     }
 
     // Branch 2 logic
