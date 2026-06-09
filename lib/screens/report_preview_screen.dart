@@ -15,7 +15,7 @@ class ReportPreviewScreen extends StatelessWidget {
 
     if (savedId != null) {
       return FutureBuilder<Map<String, dynamic>?>(
-        future: FirebaseService().getScanResult(savedId),
+        future: FirebaseService.instance.getScanResult(savedId),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(

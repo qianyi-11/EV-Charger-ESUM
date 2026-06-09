@@ -15,6 +15,9 @@ from opencv_red_detect import detect_red
 _MODEL = None
 _MODEL_PATH = None
 _IMGSZ = 480
+# Gateway scan: raise YOLO conf vs default 0.25; then require a strong ev_charger hit.
+_GATEWAY_YOLO_CONF = 0.40
+_CHARGER_MIN_CONF = 0.58
 
 
 def _load_model(model_path):
@@ -27,18 +30,26 @@ def _load_model(model_path):
     return _MODEL
 
 
+def _normalize_class(class_name):
+    return (class_name or "").lower().replace("-", "_").replace(" ", "_")
+
+
 def _is_charger_class(class_name):
-    name = (class_name or "").lower()
-    return "charger" in name or "gateway" in name or "body" in name
+    """Only ev_charger counts — avoids loose matches on 'body' / 'gateway' substrings."""
+    return _normalize_class(class_name) == "ev_charger"
 
 
-def _pick_charger_box(detections):
+def _pick_charger_detection(detections):
     charger_dets = [d for d in detections if _is_charger_class(d.get("class"))]
     if not charger_dets:
         return None
     best = max(charger_dets, key=lambda d: d.get("confidence", 0))
+    if float(best.get("confidence", 0)) < _CHARGER_MIN_CONF:
+        return None
     box = best.get("box")
-    return box if isinstance(box, list) and len(box) == 4 else None
+    if not isinstance(box, list) or len(box) != 4:
+        return None
+    return best
 
 
 def _run_yolo(image_path, model_path, imgsz=None, conf=None):
@@ -50,7 +61,7 @@ def _run_yolo(image_path, model_path, imgsz=None, conf=None):
             "mock": True,
             "error": "ultralytics is not installed",
             "detections": [
-                {"class": "charger_body", "confidence": 0.95, "box": [50, 100, 400, 800]}
+                {"class": "ev_charger", "confidence": 0.95, "box": [50, 100, 400, 800]}
             ],
         }
 
@@ -80,11 +91,17 @@ def _run_yolo(image_path, model_path, imgsz=None, conf=None):
 
 
 def _run_gateway(image_path, model_path):
-    yolo_result = _run_yolo(image_path, model_path)
-    charger_box = _pick_charger_box(yolo_result.get("detections", []))
+    yolo_result = _run_yolo(image_path, model_path, conf=_GATEWAY_YOLO_CONF)
+    charger_det = _pick_charger_detection(yolo_result.get("detections", []))
+    charger_box = charger_det.get("box") if charger_det else None
+    charger_confidence = float(charger_det.get("confidence", 0)) if charger_det else 0.0
+    charger_class = charger_det.get("class") if charger_det else None
 
     if yolo_result.get("mock") and not charger_box:
-        charger_box = yolo_result.get("detections", [{}])[0].get("box")
+        mock_det = yolo_result.get("detections", [{}])[0]
+        charger_box = mock_det.get("box")
+        charger_confidence = float(mock_det.get("confidence", 0.95))
+        charger_class = mock_det.get("class", "ev_charger")
 
     charger_detected = charger_box is not None
 
@@ -104,6 +121,8 @@ def _run_gateway(image_path, model_path):
         "yolo": yolo_result,
         "chargerDetected": charger_detected,
         "chargerBox": charger_box,
+        "chargerConfidence": charger_confidence,
+        "chargerClass": charger_class,
         "lightDetected": red_result.get("lightDetected", False),
         "lightColor": red_result.get("lightColor", "OFF"),
         "confidence": red_result.get("confidence", 0.0),

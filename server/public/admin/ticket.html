@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ticket Detail — EV Charger Admin</title>
+  <link rel="stylesheet" href="/admin/styles.css" />
+</head>
+<body>
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-card">
+      <div class="login-logo">⚡</div>
+      <h1>EV Charger Admin</h1>
+      <p class="muted">Sign in to view ticket</p>
+      <label>Email</label>
+      <input id="login-email" type="email" value="admin@gmail.com" />
+      <label>Password</label>
+      <input id="login-password" type="password" value="Law.1234" />
+      <button id="login-btn" class="btn primary">Sign In</button>
+      <p id="login-error" class="error"></p>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <a href="/admin" class="back-link">← Back</a>
+        <span id="page-title">Ticket</span>
+      </div>
+      <button id="logout-btn" class="btn ghost">Logout</button>
+    </header>
+
+    <main class="detail-layout">
+      <section class="detail-left">
+        <div class="panel">
+          <h2>Update ticket</h2>
+          <label>Assign engineer</label>
+          <select id="assign-engineer"></select>
+          <label>Status</label>
+          <select id="ticket-status">
+            <option value="open">Open</option>
+            <option value="in_progress">In progress</option>
+            <option value="complete">Complete</option>
+          </select>
+          <button id="save-btn" class="btn primary">Save changes</button>
+          <p id="save-msg" class="success hidden"></p>
+        </div>
+
+        <div class="panel">
+          <h2>Ticket details</h2>
+          <div id="ticket-details" class="details-grid"></div>
+        </div>
+      </section>
+      <section class="detail-right panel blank-panel">
+        <p class="muted">Reserved for future use</p>
+      </section>
+    </main>
+  </div>
+
+  <script src="/admin/app.js"></script>
+  <script>
+    AdminApp.initDetailPage();
+  </script>
+</body>
+</html>

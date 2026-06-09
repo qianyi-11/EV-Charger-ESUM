@@ -14,6 +14,9 @@ class DetectedFault {
 
 /// Canonical fault text from the EV charger diagnostic specification.
 class FaultCatalog {
+  static const createTicketAction =
+      'Please proceed using the "Create Ticket" button below for further inspection.';
+
   static const ticketFollowUp =
       'If the issue still persists, please proceed using the "Create Ticket" button below for further inspection.';
 
@@ -21,14 +24,14 @@ class FaultCatalog {
     component: 'MCB / RCCB',
     faultType: 'Protection Issue',
     faultDetail: 'Missing MCB.',
-    recommendedAction: ticketFollowUp,
+    recommendedAction: createTicketAction,
   );
 
   static const missingRccb = DetectedFault(
     component: 'MCB / RCCB',
     faultType: 'Protection Issue',
     faultDetail: 'Missing RCCB.',
-    recommendedAction: ticketFollowUp,
+    recommendedAction: createTicketAction,
   );
 
   static const isolatorOff = DetectedFault(
@@ -43,7 +46,7 @@ class FaultCatalog {
     component: 'Charger',
     faultType: 'Installation Issue',
     faultDetail: 'Red light flashes 6 times, indicating a Ground Fault.',
-    recommendedAction: ticketFollowUp,
+    recommendedAction: createTicketAction,
   );
 
   static const emergencyStop = DetectedFault(
@@ -58,7 +61,7 @@ class FaultCatalog {
     component: 'Charger',
     faultType: 'Charger Issue',
     faultDetail: 'Red light flashes 8 times, indicating a Short Circuit.',
-    recommendedAction: ticketFollowUp,
+    recommendedAction: createTicketAction,
   );
 
   static const overTemperature = DetectedFault(
@@ -85,15 +88,47 @@ class FaultCatalog {
   );
 
   static DetectedFault wrongSpecs(List<String> specIssues) {
-    final detail = specIssues.isEmpty
-        ? 'Wrong component specifications.'
-        : 'Wrong component specifications. ${specIssues.join(' ')}';
     return DetectedFault(
       component: 'MCB / RCCB',
       faultType: 'Protection Issue',
-      faultDetail: detail,
-      recommendedAction: ticketFollowUp,
+      faultDetail: 'Wrong component specifications.',
+      recommendedAction: createTicketAction,
     );
+  }
+
+  /// Short phase summary for tickets, e.g. "3 phase supply, spec required 1 phase."
+  static String? phaseMismatchSummary(String issue) {
+    if (!issue.toLowerCase().contains('phase mismatch')) return null;
+
+    final newFmt = RegExp(
+      r'phase mismatch:\s*(\d+)\s*phase supply,\s*spec required (\d+)\s*phase',
+      caseSensitive: false,
+    ).firstMatch(issue);
+    if (newFmt != null) {
+      return '${newFmt.group(1)} phase supply, spec required ${newFmt.group(2)} phase.';
+    }
+
+    final oldFmt = RegExp(
+      r'\((\d+)-phase supply[^)]*spec requires (\d+)-phase',
+      caseSensitive: false,
+    ).firstMatch(issue);
+    if (oldFmt != null) {
+      return '${oldFmt.group(1)} phase supply, spec required ${oldFmt.group(2)} phase.';
+    }
+    return null;
+  }
+
+  /// Simplified finding line for result page analysis section.
+  static String simplifySpecFinding(String issue) {
+    if (!issue.toLowerCase().contains('phase mismatch')) return issue;
+    final componentMatch =
+        RegExp(r'^(\w+)\s+phase mismatch', caseSensitive: false).firstMatch(issue);
+    final component = componentMatch?.group(1) ?? 'Component';
+    final summary = phaseMismatchSummary(issue);
+    if (summary != null) {
+      return '$component phase mismatch: $summary';
+    }
+    return issue;
   }
 
   static List<DetectedFault> fromEvdbAnalysis({

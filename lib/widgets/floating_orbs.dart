@@ -61,7 +61,7 @@ class _FloatingOrbsBackgroundState extends State<FloatingOrbsBackground>
         // The background painting canvas
         Positioned.fill(
           child: Container(
-            color: AppColors.background,
+            color: Theme.of(context).scaffoldBackgroundColor,
           ),
         ),
         // Draw the orbs dynamically

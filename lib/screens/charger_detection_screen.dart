@@ -30,6 +30,10 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
   int _elapsedMs = 0;
   bool _lightSampleInFlight = false;
   List<double>? _chargerBox;
+  int _chargerConfirmHits = 0;
+
+  static const double _minChargerConfidence = 0.58;
+  static const int _chargerConfirmFrames = 2;
 
   // Animation Controllers
   late final AnimationController _scannerPulseController;
@@ -78,13 +82,25 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
       if (kDebugMode) {
         debugPrint(
           "[ChargerDetect] gateway charger=${result.chargerDetected} "
+          "yoloConf=${result.chargerConfidence.toStringAsFixed(2)} "
+          "class=${result.chargerClass} hits=$_chargerConfirmHits "
           "light=${result.lightDetected} color=${result.lightColor} "
           "err=${result.errorMessage}",
         );
       }
 
-      if (result.success && result.chargerDetected) {
+      final chargerAccepted = result.success &&
+          result.chargerDetected &&
+          result.chargerConfidence >= _minChargerConfidence;
+
+      if (chargerAccepted) {
+        _chargerConfirmHits += 1;
         _chargerBox = result.chargerBox;
+
+        if (_chargerConfirmHits < _chargerConfirmFrames) {
+          Timer(const Duration(milliseconds: 800), _runDetectionSequence);
+          return;
+        }
 
         if (result.lightDetected && _isRedOrFlicker(result.lightColor)) {
           setState(() => _phase = DetectionPhase.chargerFound);
@@ -98,7 +114,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
 
         _startRedLightSearch();
       } else {
-        // Retry if charger not found
+        _chargerConfirmHits = 0;
         Timer(const Duration(milliseconds: 800), _runDetectionSequence);
       }
     } catch (e) {

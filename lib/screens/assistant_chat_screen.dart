@@ -16,7 +16,9 @@ class MessageModel {
 }
 
 class AssistantChatScreen extends StatefulWidget {
-  const AssistantChatScreen({super.key});
+  final bool embeddedInShell;
+
+  const AssistantChatScreen({super.key, this.embeddedInShell = false});
 
   @override
   State<AssistantChatScreen> createState() => _AssistantChatScreenState();
@@ -151,15 +153,20 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = context.adaptive;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: adaptive.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        automaticallyImplyLeading: !widget.embeddedInShell,
+        leading: widget.embeddedInShell
+            ? null
+            : IconButton(
+                icon: Icon(Icons.arrow_back, color: adaptive.textPrimary),
+                onPressed: () => Navigator.pop(context),
+              ),
         title: Row(
           children: [
             PulsingGlow(
@@ -173,11 +180,17 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
               ),
             ),
             const SizedBox(width: 10),
-            const Column(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("EVision AI Assistant", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
-                Text("System Engineer Bot • Online", style: TextStyle(fontSize: 10, color: AppColors.textSecondary)),
+                Text(
+                  "EVision AI Assistant",
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: adaptive.textPrimary),
+                ),
+                Text(
+                  "System Engineer Bot • Online",
+                  style: TextStyle(fontSize: 10, color: adaptive.textSecondary),
+                ),
               ],
             ),
           ],

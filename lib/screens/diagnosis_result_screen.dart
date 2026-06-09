@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/diagnostic_state.dart';
 import '../models/detected_fault.dart';
-import '../widgets/glass_container.dart';
+import '../models/support_ticket.dart';
+import 'new_ticket_screen.dart';
 
 class DiagnosisResultScreen extends StatefulWidget {
   final String errorCode;
@@ -20,8 +21,11 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
   double _animatedConfidence = 0.0;
   late final AnimationController _confidenceController;
 
-  static const Color _cardBorderRed = Color(0x4DFF2D55);
-  static const Color _subtitleCyan = Color(0xFF4FC3F7);
+  static const Color _pageBackground = Color(0xFF050A18);
+  static const Color _accentCyan = Color(0xFF00D1FF);
+  static const Color _mutedText = Color(0xFF94A3B8);
+  static const Color _sectionDivider = Color(0xFF1A2238);
+  static const Color _cardSurface = Color(0xFF0C1224);
 
   @override
   void initState() {
@@ -65,12 +69,6 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
 
   int get _confidencePercent => (_animatedConfidence * 100).round();
 
-  Color get _confidenceBarColor {
-    final ratio = _animatedConfidence / DiagnosticState.displayConfidenceMax;
-    if (ratio < 0.82) return AppColors.warningOrange;
-    return const Color(0xFF00C853);
-  }
-
   @override
   void dispose() {
     _confidenceController.dispose();
@@ -78,26 +76,67 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
   }
 
   void _createTicket() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Ticket request recorded. Support ticketing will be available in a future update.'),
-        backgroundColor: AppColors.secondaryBg,
+    final state = DiagnosticState();
+    final prefill = TicketPrefill.fromDiagnosis(
+      widget.errorCode,
+      scanFindings: state.scanFindings,
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NewTicketScreen(
+          prefill: TicketPrefill(
+            faultyComponent: prefill.faultyComponent,
+            describeIssue: prefill.describeIssue,
+            chargerSerialNumber: state.serialNumber.isNotEmpty ? state.serialNumber : null,
+            sourceErrorCode: widget.errorCode,
+            details: prefill.details,
+          ),
+        ),
       ),
     );
+  }
+
+  String _headlineTitle(DetectedFault fault) {
+    final detail = fault.faultDetail;
+    final indicating = RegExp(r'indicating an? (.+?)\.?$', caseSensitive: false).firstMatch(detail);
+    if (indicating != null) return indicating.group(1)!.trim();
+    if (detail.length <= 48) return detail;
+    final dot = detail.indexOf('. ');
+    if (dot > 0) return detail.substring(0, dot);
+    return fault.faultType;
+  }
+
+  String? _headlineSubtitle(DetectedFault fault) {
+    if (fault.faultDetail.toLowerCase().startsWith('wrong component specifications')) {
+      return null;
+    }
+    final title = _headlineTitle(fault);
+    if (fault.faultDetail.trim() == title.trim()) return null;
+    return fault.faultDetail;
+  }
+
+  List<String> _splitIntoBullets(String text) {
+    return text
+        .split(RegExp(r'(?<=[.!?])\s+'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList();
   }
 
   @override
   Widget build(BuildContext context) {
     final faults = _faults;
+    final primaryFault = faults.isNotEmpty ? faults.first : null;
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: _pageBackground,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
         title: const Text(
-          'AI Fault Diagnosis',
+          'Result',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
@@ -107,17 +146,22 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (faults.isEmpty)
-                _buildEmptyCard()
-              else
-                ...faults.map(_buildFaultCard),
-              const SizedBox(height: 16),
-              _buildConfidenceCard(),
-              const SizedBox(height: 20),
+              if (primaryFault == null)
+                _buildEmptyState()
+              else ...[
+                _buildHeaderSection(primaryFault),
+                const SizedBox(height: 20),
+                _buildConfidenceCard(),
+                const SizedBox(height: 24),
+                _buildDiagnosticExplanationSection(faults),
+                const SizedBox(height: 24),
+                _buildRecommendedActionsSection(faults),
+              ],
+              const SizedBox(height: 28),
               ElevatedButton.icon(
                 onPressed: _createTicket,
                 icon: const Icon(Icons.confirmation_number_outlined, color: Colors.black),
@@ -159,14 +203,18 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     );
   }
 
-  Widget _buildEmptyCard() {
-    return GlassContainer(
+  Widget _buildEmptyState() {
+    return Container(
       padding: const EdgeInsets.all(20),
-      borderColor: _cardBorderRed,
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.dangerRed.withValues(alpha: 0.3)),
+      ),
       child: const Text(
         'No fault details are available for this diagnosis yet.',
         style: TextStyle(
-          color: AppColors.textSecondary,
+          color: _mutedText,
           fontSize: 13,
           height: 1.5,
         ),
@@ -174,136 +222,210 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     );
   }
 
-  Widget _buildFaultCard(DetectedFault fault) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: GlassContainer(
-        padding: const EdgeInsets.all(20),
-        borderColor: _cardBorderRed,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Text(
-                  'Confidence: $_confidencePercent%',
-                  style: const TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+  Widget _buildHeaderSection(DetectedFault fault) {
+    final subtitle = _headlineSubtitle(fault);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: _accentCyan.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: _accentCyan.withValues(alpha: 0.35)),
+          ),
+          child: Text(
+            fault.faultType,
+            style: const TextStyle(
+              color: _accentCyan,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
-            const SizedBox(height: 14),
-            Text(
-              fault.faultType,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                letterSpacing: -0.3,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              fault.faultDetail,
-              style: const TextStyle(
-                color: _subtitleCyan,
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                height: 1.35,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _buildRecommendedActionSection(fault.recommendedAction),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(height: 14),
+        Text(
+          _headlineTitle(fault),
+          style: const TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+            letterSpacing: -0.4,
+            height: 1.15,
+          ),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              color: _mutedText,
+              fontSize: 14,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ],
     );
   }
 
-  Widget _buildRecommendedActionSection(String action) {
+  Widget _buildConfidenceCard() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: AppColors.tertiaryBg.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: AppColors.electricBlue.withValues(alpha: 0.35),
-        ),
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Recommended Action',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.2,
-              height: 1.25,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'AI Confidence Score',
+                style: TextStyle(
+                  color: _mutedText,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                '$_confidencePercent%',
+                style: const TextStyle(
+                  color: _accentCyan,
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            action,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.92),
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              height: 1.55,
-            ),
-          ),
+          const SizedBox(height: 14),
+          _GradientConfidenceBar(progress: _animatedConfidence),
         ],
       ),
     );
   }
 
-  Widget _buildConfidenceCard() {
-    return GlassContainer(
-      padding: const EdgeInsets.all(16),
+  Widget _buildDiagnosticExplanationSection(List<DetectedFault> faults) {
+    final List<String> bullets;
+    if (widget.errorCode.toLowerCase() == 'protection-issue' &&
+        _globalState.scanFindings.isNotEmpty) {
+      bullets = _globalState.scanFindings
+          .map(FaultCatalog.simplifySpecFinding)
+          .toSet()
+          .toList();
+    } else {
+      bullets = faults
+          .expand((fault) => _splitIntoBullets(fault.faultDetail))
+          .toSet()
+          .toList();
+    }
+
+    return _buildSectionCard(
+      icon: Icons.bolt_rounded,
+      iconColor: _accentCyan,
+      title: 'Diagnostic Explanation',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'AI Inference Precision:',
+            'Analysis findings:',
             style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
-              color: Colors.white70,
+              color: _accentCyan,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          ...bullets.map((item) => _buildBulletItem(item)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecommendedActionsSection(List<DetectedFault> faults) {
+    final bullets = faults
+        .expand((fault) => _splitIntoBullets(fault.recommendedAction))
+        .toSet()
+        .toList();
+
+    return _buildSectionCard(
+      icon: Icons.check_circle_outline_rounded,
+      iconColor: AppColors.warningOrange,
+      title: 'Recommended Actions',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: bullets.map((item) => _buildBulletItem(item)).toList(),
+      ),
+    );
+  }
+
+  Widget _buildSectionCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Row(
             children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: SizedBox(
-                    height: 8,
-                    child: LinearProgressIndicator(
-                      value: _animatedConfidence,
-                      backgroundColor: Colors.white12,
-                      color: _confidenceBarColor,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 14),
+              Icon(icon, color: iconColor, size: 20),
+              const SizedBox(width: 8),
               Text(
-                '$_confidencePercent%',
+                title,
                 style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
                   color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+          Container(height: 1, color: _sectionDivider),
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBulletItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            margin: const EdgeInsets.only(top: 7, right: 12),
+            decoration: const BoxDecoration(
+              color: _accentCyan,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                height: 1.5,
+              ),
+            ),
           ),
         ],
       ),
@@ -317,28 +439,68 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
   }) {
     return GestureDetector(
       onTap: onTap,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GlassContainer(
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: AppColors.electricBlue, size: 18),
-              const SizedBox(width: 10),
-              Flexible(
-                child: Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: Colors.white,
-                  ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: _cardSurface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: AppColors.electricBlue, size: 18),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  color: Colors.white,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GradientConfidenceBar extends StatelessWidget {
+  final double progress;
+
+  const _GradientConfidenceBar({required this.progress});
+
+  static const _gradient = LinearGradient(
+    colors: [
+      Color(0xFFFF3B30),
+      Color(0xFFFF9500),
+      Color(0xFFFFCC00),
+      Color(0xFF34C759),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: 10,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(color: Colors.white.withValues(alpha: 0.08)),
+            FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: progress.clamp(0.0, 1.0),
+              child: Container(
+                decoration: const BoxDecoration(gradient: _gradient),
+              ),
+            ),
+          ],
         ),
       ),
     );

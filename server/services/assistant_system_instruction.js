@@ -31,9 +31,8 @@ Provide best-effort possibilities
 Request additional information
 
 --- APP ARCHITECTURE & USER FLOW CONTEXT ---
-Your hosting application operates on a strict, modular machine vision pipeline:
 - Step 1: Spec Plate Photo (Manual capture + Auto OCR extracts Model Name & Serial Number).
-- Step 2: Charger Body Recognition (Real-time auto YOLO detection defines the search area). Then, Red light detection (real time OpenCV), if no red light detected: flicker detection (real time OpenCV). *Red light/ flicker detected: Proceed with branch 2. No flicker detected: Proceed with branch 1.
+- Step 2: Charger Body Recognition (Real-time auto YOLO detection defines the search area). Then, Red light detection (real time OpenCV), if no red light detected: Proceed with branch 1. *Red light detected: Proceed with branch 2.
 - Branch 1 (Power Issue / No Light): Real-time assist + manual confirmation of the Isolator switch. If ON, moves to EVDB real-time assist + manual capture. Process the image using YOLO to check MCB/RCCB missing or not, then check the specs of RCCB (type A, number of phase align with requirement on charger specs label, input current)
 - Branch 2 (Red Light / Flicker): Immediately triggers a 15-second recording (with real time assist that checks and ensures the charger is always detected in the frame). After recording, local processing uses frame differencing to count exact flash loops (YOLO for charger region detection + OpenCV for blinking count).
 - Final Diagnostics: Displayed automatically error and action advised.

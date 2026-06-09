@@ -32,7 +32,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = context.adaptive;
+
     return Scaffold(
+      backgroundColor: adaptive.background,
       body: FloatingOrbsBackground(
         child: SafeArea(
           child: Column(
@@ -55,15 +58,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        const Text(
-                          "Welcome to EVision AI",
-                          style: TextStyle(color: AppColors.textSecondary),
+                        Text(
+                          "Welcome, ${_state.username}",
+                          style: TextStyle(color: adaptive.textSecondary),
                         ),
                       ],
-                    ),
-                    _buildIconButton(
-                      icon: Icons.settings,
-                      onTap: () => Navigator.pushNamed(context, "/settings"),
                     ),
                   ],
                 ),
@@ -78,41 +77,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       const SizedBox(height: 12),
 
-                      // Quick Action Cards (3-column grid)
                       _buildAnimatedEntrance(
                         delayIndex: 0,
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: _buildQuickActionCard(
-                                title: "Start Diagnosis",
-                                subtitle: "AI Detection",
-                                icon: Icons.camera_alt,
-                                color: AppColors.electricBlue,
-                                onTap: () => Navigator.pushNamed(context, "/unified-detection"),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _buildQuickActionCard(
-                                title: "AI Assistant",
-                                subtitle: "Expert Guide",
-                                icon: Icons.chat_bubble,
-                                color: AppColors.successGreen,
-                                onTap: () => Navigator.pushNamed(context, "/assistant"),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _buildQuickActionCard(
-                                title: "Reports",
-                                subtitle: "Past History",
-                                icon: Icons.file_copy,
-                                color: AppColors.warningOrange,
-                                onTap: () => Navigator.pushNamed(context, "/report"),
-                              ),
-                            ),
-                          ],
+                        child: _buildQuickActionCard(
+                          context: context,
+                          title: "Start Diagnosis",
+                          subtitle: "AI-powered charger fault detection",
+                          icon: Icons.camera_alt,
+                          color: AppColors.electricBlue,
+                          onTap: () => Navigator.pushNamed(context, "/unified-detection"),
                         ),
                       ),
 
@@ -140,6 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           children: [
                             Expanded(
                               child: _buildStatusCard(
+                                context: context,
                                 title: "AI Model",
                                 value: "v2.4.1",
                                 indicatorColor: AppColors.successGreen,
@@ -148,6 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: _buildStatusCard(
+                                context: context,
                                 title: "Accuracy",
                                 value: "98.5%",
                                 indicatorColor: AppColors.successGreen,
@@ -156,6 +131,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: _buildStatusCard(
+                                context: context,
                                 title: "Latency",
                                 value: "45ms",
                                 indicatorColor: AppColors.successGreen,
@@ -165,51 +141,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
 
-                      const SizedBox(height: 28),
-
-                      // Recent Activity Section
-                      Row(
-                        children: [
-                          const Icon(Icons.history_toggle_off, color: AppColors.electricBlue, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            "Recent Activity",
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      _buildAnimatedEntrance(
-                        delayIndex: 2,
-                        child: _state.recentActivity.isEmpty
-                            ? const Padding(
-                                padding: EdgeInsets.all(24.0),
-                                child: Center(
-                                  child: Text(
-                                    "No diagnoses performed yet.",
-                                    style: TextStyle(color: AppColors.textSecondary),
-                                  ),
-                                ),
-                              )
-                            : ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: _state.recentActivity.length,
-                                itemBuilder: (context, index) {
-                                  final item = _state.recentActivity[index];
-                                  return _buildActivityItem(
-                                    description: item["description"],
-                                    timestamp: item["timestamp"],
-                                    status: item["status"],
-                                    code: item["code"],
-                                  );
-                                },
-                              ),
-                      ),
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -222,61 +153,55 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildIconButton({required IconData icon, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
-          shape: BoxShape.circle,
-          border: Border.all(color: AppColors.glassBorder),
-        ),
-        child: Icon(icon, color: Colors.white, size: 20),
-      ),
-    );
-  }
-
   Widget _buildQuickActionCard({
+    required BuildContext context,
     required String title,
     required String subtitle,
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
   }) {
+    final adaptive = context.adaptive;
     return _InteractiveCard(
       onTap: onTap,
       child: GlassContainer(
-        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 10),
+        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
         borderColor: color.withOpacity(0.2),
-        child: Column(
+        child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: color.withOpacity(0.12),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: color, size: 24),
+              child: Icon(icon, color: color, size: 28),
             ),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: adaptive.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: adaptive.textSecondary,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: const TextStyle(
-                fontSize: 11,
-                color: AppColors.textSecondary,
-              ),
-            ),
+            Icon(Icons.arrow_forward_ios, color: adaptive.textSecondary, size: 16),
           ],
         ),
       ),
@@ -284,10 +209,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildStatusCard({
+    required BuildContext context,
     required String title,
     required String value,
     required Color indicatorColor,
   }) {
+    final adaptive = context.adaptive;
     return GlassContainer(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -298,9 +225,9 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: AppColors.textSecondary,
+                  color: adaptive.textSecondary,
                 ),
               ),
               Container(
@@ -322,90 +249,13 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 8),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: adaptive.textPrimary,
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildActivityItem({
-    required String description,
-    required String timestamp,
-    required String status,
-    required String code,
-  }) {
-    Color badgeColor = AppColors.successGreen;
-    if (status == "critical") badgeColor = AppColors.dangerRed;
-    if (status == "warning") badgeColor = AppColors.warningOrange;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: _InteractiveCard(
-        onTap: () => Navigator.pushNamed(context, "/diagnosis/$code"),
-        child: GlassContainer(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
-            children: [
-              // Activity Status Pill
-              Container(
-                width: 4,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: badgeColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      description,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      timestamp,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: badgeColor.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: badgeColor.withOpacity(0.2)),
-                ),
-                child: Text(
-                  code.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: badgeColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

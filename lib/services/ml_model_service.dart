@@ -9,6 +9,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'red_led_detector.dart';
 import 'server_connectivity_service.dart';
 import '../models/diagnostic_state.dart';
+import '../config/assistant_system_instruction.dart';
 
 /// The integration mode for the custom trained machine learning models.
 enum MlIntegrationMode {
@@ -49,7 +50,11 @@ class ChargerDetectionResult {
   final bool chargerDetected;
   final bool lightDetected;
   final String lightColor; // "RED", "GREEN", "OFF"
+  /// OpenCV red-LED confidence inside the charger ROI.
   final double confidence;
+  /// YOLO ev_charger confidence (gateway detect only).
+  final double chargerConfidence;
+  final String? chargerClass;
   final String? errorMessage;
   /// YOLO bounding box [x1, y1, x2, y2] — reused for fast red-light polls.
   final List<double>? chargerBox;
@@ -60,6 +65,8 @@ class ChargerDetectionResult {
     required this.lightDetected,
     required this.lightColor,
     required this.confidence,
+    this.chargerConfidence = 0.0,
+    this.chargerClass,
     this.errorMessage,
     this.chargerBox,
   });
@@ -313,14 +320,17 @@ class MlModelService {
             final lightDetected = json['lightDetected'] ?? false;
             final lightColor = (json['lightColor'] ?? "OFF").toString();
             final confidence = (json['confidence'] ?? 0.0).toDouble();
+            final chargerConfidence = (json['chargerConfidence'] ?? 0.0).toDouble();
             final chargerBox = _parseChargerBox(json['chargerBox']);
 
             return ChargerDetectionResult(
-              success: json['success'] ?? true,
-              chargerDetected: json['chargerDetected'] ?? true,
+              success: json['success'] ?? false,
+              chargerDetected: json['chargerDetected'] ?? false,
               lightDetected: lightDetected,
               lightColor: lightColor,
               confidence: confidence,
+              chargerConfidence: chargerConfidence,
+              chargerClass: json['chargerClass']?.toString(),
               chargerBox: chargerBox,
             );
           } else {
@@ -330,14 +340,13 @@ class MlModelService {
           if (kDebugMode) {
             print("[ML Service] Gateway API error, trying on-device red: $e");
           }
-          final local = await RedLedDetector.analyzeFile(imageFile.path);
           return ChargerDetectionResult(
-            success: true,
-            chargerDetected: true,
-            lightDetected: local.detected,
-            lightColor: local.detected ? "RED" : "OFF",
-            confidence: local.confidence,
-            errorMessage: local.detected ? null : e.toString(),
+            success: false,
+            chargerDetected: false,
+            lightDetected: false,
+            lightColor: "OFF",
+            confidence: 0.0,
+            errorMessage: e.toString(),
           );
         }
 
@@ -879,67 +888,10 @@ class MlModelService {
     }
 
     try {
-      final state = DiagnosticState();
-      final bool hasNoScans = !state.ocrCompleted && state.recentActivity.isEmpty;
-      final String activeError = state.recentActivity.isNotEmpty ? state.recentActivity.first['code'] ?? 'unknown' : 'none';
-
-      String systemInstructionText = r'''You are the Guardrailed AI Assistant for a Smart EV Charger App.
-Your goal is to triage user issues dynamically by asking clarifying questions, identifying the specific root cause, and providing structured next actions.
-Your role is to:
-Assist users in identifying EV charger problems
-Provide structured troubleshooting guidance with only text-based
-Explain possible causes clearly and professionally
-Guide users safely toward the next action
-Maintain a calm, technical, and trustworthy tone
-You are NOT a casual chatbot.
-You behave like a professional EV charging technical support engineer.
-
-CRITICAL RULES:
-1. Speak in a highly structured format using the exact keys: [Symptom], [Root Cause], [Advised Action].
-2. Never invent error code names. Stick strictly to the exact hardware symptoms.
-3. If the user's issue cannot be triaged using standard guides, reply with:
-   "[Symptom]: Unknown
-[Root Cause]: Unrecognized anomaly
-[Advised Action]: Please tap [Start Diagnosis] button below to identify the issue and root cause."
-4. If any protection component is missing or broken, advise the user to not touch it.
-5. Never use emojis, never give generic advice.
-6. Only answer questions related to this app. Politely refuse unrelated questions.
-''';
-
-      if (hasNoScans) {
-        systemInstructionText += r'''
-7. IMPORTANT: There is NO active scan history or diagnostic data currently available for this charger.
-If the user asks about dangerous conditions, continuing charging, how to fix, or diagnostic status, you MUST politely state:
-"🔌 No Scan History Found. I currently do not see any active diagnostic telemetry or scan history for your charger. Therefore, I cannot determine if there is a safety risk, if it is safe to charge, or how to resolve any issues. Please go back to the Dashboard and tap [Start Diagnosis] to scan your charger status panel or specification plate so that I can provide real-time guidance."
-Do NOT output any simulated RCCB/Error 8 instructions when there is no scan history.
-''';
-      } else {
-        systemInstructionText += '''
-7. ACTIVE TELEMETRY CONTEXT:
-- Charger Model: ${state.chargerModel}
-- Serial Number: ${state.serialNumber}
-- Active Diagnosed Fault: $activeError
-- Current Branch: Branch ${state.selectedBranch}
-- Isolator Switch State: ${state.isIsolatorOn ? 'ON' : 'OFF'}
-- EVDB Specification Status: ${state.isEvdbOk ? 'Incompatible Board or Breaker Detected' : 'Board spec checks passed'}
-- Blinks Counted: ${state.blinksCounted}
-
-Provide direct, highly accurate responses tailored specifically to this active error:
-- If 'power-cut': Explain that the Isolator Switch is OFF and must be turned ON.
-- If 'protection-issue': Explain that the EV Distribution Board (EVDB) breaker capacity/MCB specification is incorrect/wrong board spec. Advise them a technician is auto-contacted, and DO NOT touch the board.
-- If 'blink-6': Explain that there is a Grounding/PE open-circuit fault. Advise keeping clear and that a technician is on the way.
-- If 'blink-7': Explain that the Emergency Stop (E-Stop) button is pressed. Advise twisting it clockwise to reset.
-- If 'blink-8': Explain that there is an RCCB earth leakage fault. Advise unplugging and checking for damage/water.
-- If 'blink-9': Explain that there is a microcontroller/control loop hang. Advise power cycling the main isolator switch.
-- If 'charger-issue': Explain that a general internal overtemperature or cooling fan hardware fault is active.
-Never output fake RCCB (Error 8) information if the active scanned error code is different.
-''';
-      }
-
       final model = GenerativeModel(
         model: 'gemini-2.5-flash',
         apiKey: apiKey,
-        systemInstruction: Content.system(systemInstructionText),
+        systemInstruction: Content.system(AssistantSystemInstruction.base),
       );
 
       final chatHistory = <Content>[];

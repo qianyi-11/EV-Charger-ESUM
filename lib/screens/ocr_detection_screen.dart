@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../models/diagnostic_state.dart';
 import '../widgets/glass_container.dart';
@@ -12,7 +11,7 @@ import '../services/integration_controller.dart';
 import '../services/sharp_capture.dart';
 import 'package:camera/camera.dart';
 
-enum OcrState { instruction, capturing, shakeDetected, blurDetected, processing, success }
+enum OcrState { instruction, capturing, retakeRequired, processing, success }
 
 class OcrDetectionScreen extends StatefulWidget {
   const OcrDetectionScreen({super.key});
@@ -43,6 +42,23 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   String _extractedBrand = 'Unknown';
   String _extractedInputVoltage = 'Unknown';
   String _extractedOutputCurrent = 'Unknown';
+  String _retakeMessage = '';
+
+  bool _isValidInputVoltage(String? value) {
+    if (value == null || value.trim().isEmpty) return false;
+    final lower = value.trim().toLowerCase();
+    if (lower == 'unknown' || lower == 'n/a') return false;
+    return RegExp(r'\d+\s*v', caseSensitive: false).hasMatch(value);
+  }
+
+  void _showRetakeRequired(String message) {
+    _rotationController.stop();
+    setState(() {
+      _captureInFlight = false;
+      _currentState = OcrState.retakeRequired;
+      _retakeMessage = message;
+    });
+  }
 
   Widget _buildResultRow(String label, String value) {
     return Row(
@@ -77,39 +93,24 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
   }
 
   void _startCamera() {
+    _stabilityTimer?.cancel();
     setState(() {
       _currentState = OcrState.capturing;
       _stability = 85.0;
       _cameraReady = false;
       _captureInFlight = false;
+      _retakeMessage = '';
     });
 
-    // Simulate fluctuating camera stability
-    _stabilityTimer?.cancel();
     final rand = math.Random();
     _stabilityTimer = Timer.periodic(const Duration(milliseconds: 400), (timer) {
       if (_currentState == OcrState.capturing) {
         setState(() {
-          // Fluctuate stability between 75 and 98
           _stability = 75.0 + rand.nextDouble() * 23.0;
         });
-        
-        // Manual capture mode - stability metrics still tracked in real-time
+      } else {
+        timer.cancel();
       }
-    });
-  }
-
-  void _triggerShake() {
-    _stabilityTimer?.cancel();
-    setState(() {
-      _currentState = OcrState.shakeDetected;
-      _stability = 25.0;
-    });
-  }
-
-  void _triggerBlur() {
-    setState(() {
-      _currentState = OcrState.blurDetected;
     });
   }
 
@@ -145,6 +146,14 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
       _rotationController.stop();
 
       if (result.success) {
+        if (!_isValidInputVoltage(result.inputVoltage)) {
+          _showRetakeRequired(
+            'Could not read input voltage from the spec plate. '
+            'Retake a clearer photo showing the voltage rating (e.g. 230V AC).',
+          );
+          return;
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text("OCR extracted: '${result.extractedText}'"),
           duration: const Duration(seconds: 2),
@@ -174,12 +183,6 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           }
         });
       } else {
-        setState(() {
-          _currentState = OcrState.capturing;
-          _extractedModel = 'Unknown';
-          _extractedSerialNumber = 'Unknown';
-        });
-
         final String errorMsg;
         if (result.quotaExceeded) {
           errorMsg = result.reason ??
@@ -202,32 +205,18 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           errorMsg = "Could not read the plate. Please try again.";
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(errorMsg),
-          duration: const Duration(seconds: 3),
-        ));
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) _startCamera();
-        });
+        _showRetakeRequired(errorMsg);
       }
     } catch (e, stack) {
       print("====== OCR ERROR: $e");
       print(stack);
       if (mounted) {
-        _rotationController.stop();
-        setState(() {
-          _currentState = OcrState.capturing;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Error: $e. Please try again."),
-          duration: const Duration(seconds: 2),
-        ));
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) _startCamera();
-        });
+        _showRetakeRequired("Error: $e. Please try again.");
       }
     } finally {
-      if (mounted) setState(() => _captureInFlight = false);
+      if (mounted && _currentState != OcrState.retakeRequired) {
+        setState(() => _captureInFlight = false);
+      }
     }
   }
 
@@ -247,29 +236,6 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 10),
-              
-              // Dynamic Simulator Control Bar
-              if (_currentState == OcrState.capturing)
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.04),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.glassBorder),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      const Text(
-                        "Simulator Tools:",
-                        style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.bold),
-                      ),
-                      _buildMiniButton("Simulate Shake", AppColors.warningOrange, _triggerShake),
-                      _buildMiniButton("Simulate Blur", AppColors.dangerRed, _triggerBlur),
-                    ],
-                  ),
-                ),
 
               // Main interactive viewfinder / container
               Expanded(
@@ -290,27 +256,6 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
               ),
               const SizedBox(height: 16),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMiniButton(String label, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: color.withOpacity(0.3)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
       ),
@@ -440,9 +385,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           ),
         );
 
-      case OcrState.shakeDetected:
-      case OcrState.blurDetected:
-        final isShake = _currentState == OcrState.shakeDetected;
+      case OcrState.retakeRequired:
         return Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -454,21 +397,21 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
                 border: Border.all(color: AppColors.warningOrange.withOpacity(0.3)),
               ),
               child: const Icon(
-                Icons.warning_amber_rounded,
+                Icons.refresh,
                 color: AppColors.warningOrange,
                 size: 36,
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              isShake ? "Camera Movement Detected" : "Image Too Blurry",
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            const Text(
+              "Retake Required",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 10),
             Text(
-              isShake 
-                ? "We detected significant phone shake. Please keep your hands steady."
-                : "The captured image fails clarity tests. Clean your lens and improve lighting.",
+              _retakeMessage.isNotEmpty
+                  ? _retakeMessage
+                  : 'Please retake a clearer photo of the spec plate.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textSecondary, height: 1.4),
             ),
@@ -539,7 +482,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
         ),
         child: Column(
           children: [
-            _buildResultRow("Brand",          _extractedBrand),
+            _buildResultRow("Charger Brand", _extractedBrand),
             const SizedBox(height: 8),
             _buildResultRow("Model",          _extractedModel),
             const SizedBox(height: 8),
@@ -635,7 +578,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           ],
         );
 
-      case OcrState.shakeDetected:
+      case OcrState.retakeRequired:
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -649,50 +592,13 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Quick Stabilization Tips:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  const Text("Before you retake:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 12),
-                  _buildTipItem("Rest hands or elbows on a stable platform"),
+                  _buildTipItem("Hold the phone steady and ensure good lighting"),
                   const SizedBox(height: 8),
-                  _buildTipItem("Hold device firmly with both hands"),
+                  _buildTipItem("Make sure the voltage rating (e.g. 230V) is visible"),
                   const SizedBox(height: 8),
-                  _buildTipItem("Slowly approach the plate target label"),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _startCamera,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.warningOrange,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text("Try Again", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
-            ),
-          ],
-        );
-
-      case OcrState.blurDetected:
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.warningOrange.withOpacity(0.04),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.warningOrange.withOpacity(0.2)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("Lighting & Lens Adjustments:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 12),
-                  _buildTipItem("Wipe your smartphone camera lens"),
-                  const SizedBox(height: 8),
-                  _buildTipItem("Tap on-screen spec boxes to force autofocus"),
-                  const SizedBox(height: 8),
-                  _buildTipItem("Avoid reflective light glare blocks"),
+                  _buildTipItem("Wipe the camera lens and tap to focus on the label"),
                 ],
               ),
             ),

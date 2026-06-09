@@ -3,6 +3,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'detected_fault.dart';
+import '../services/user_prefs_service.dart';
 
 enum DiagnosisSeverity { info, warning, critical }
  
@@ -94,10 +95,23 @@ class DiagnosticState {
   
   /// Add a diagnostic record to recent activity
   void addDiagnosticRecord(String errorCode) {
-    recentActivity.add({
+    final normalized = FaultCatalog.normalizeErrorCode(errorCode);
+    final info = database[normalized] ?? database[errorCode];
+    final severity = info?.severity ?? DiagnosisSeverity.warning;
+    final status = severity == DiagnosisSeverity.critical
+        ? 'critical'
+        : severity == DiagnosisSeverity.warning
+            ? 'warning'
+            : 'info';
+
+    recentActivity.insert(0, {
       'timestamp': DateTime.now().toIso8601String(),
       'errorCode': errorCode,
+      'code': normalized,
+      'description': info?.name ?? normalized,
+      'status': status,
     });
+    _notifyListeners();
   }
   
   /// Update charger detection info
@@ -241,40 +255,76 @@ class DiagnosticState {
     }
   }
   
-  // ---------- Settings State (for home_screen and settings_screen) ----------
+  // ---------- Settings & profile ----------
+  String username = 'EV User';
   String language = 'English';
   bool darkTheme = true;
   bool pushNotifications = true;
-  
+
+  Future<void> loadUserProfile() async {
+    username = await UserPrefsService.loadUsername();
+    darkTheme = await UserPrefsService.loadDarkTheme(defaultValue: darkTheme);
+    _notifyListeners();
+  }
+
+  Future<void> setUsername(String name) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return;
+    username = trimmed;
+    await UserPrefsService.saveUsername(trimmed);
+    _notifyListeners();
+  }
+
   void changeLanguage(String newLanguage) {
     language = newLanguage;
+    _notifyListeners();
   }
-  
+
   void toggleDarkTheme({bool? newValue}) {
     if (newValue != null) {
       darkTheme = newValue;
     } else {
       darkTheme = !darkTheme;
     }
+    UserPrefsService.saveDarkTheme(darkTheme);
+    _notifyListeners();
   }
-  
+
   void toggleNotifications({bool? newValue}) {
     if (newValue != null) {
       pushNotifications = newValue;
     } else {
       pushNotifications = !pushNotifications;
     }
+    _notifyListeners();
   }
-  
-  // Observer pattern for state changes
+
+  void logout() {
+    ocrCompleted = false;
+    detectedFaults = [];
+    scanFindings = [];
+    scanConfidence = 0.0;
+    recentActivity = [];
+    savedReportId = null;
+    targetErrorCode = '';
+    blinksCounted = 0;
+    _notifyListeners();
+  }
+
   final List<VoidCallback> _listeners = [];
-  
+
   void addListener(VoidCallback listener) {
     _listeners.add(listener);
   }
-  
+
   void removeListener(VoidCallback listener) {
     _listeners.remove(listener);
+  }
+
+  void _notifyListeners() {
+    for (final listener in List<VoidCallback>.from(_listeners)) {
+      listener();
+    }
   }
 
   // Error code keys must match what is passed via Navigator arguments.

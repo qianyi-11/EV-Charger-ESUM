@@ -58,7 +58,7 @@ function runYoloInferenceCold(imageBuffer) {
             success: true,
             mock: true,
             warning: 'Running in simulated mode. Install ultralytics for real weights.',
-            detections: [{ class: 'charger_body', confidence: 0.98, box: [50, 100, 400, 800] }],
+            detections: [{ class: 'ev_charger', confidence: 0.98, box: [50, 100, 400, 800] }],
           });
         }
 

@@ -518,7 +518,7 @@ class _EvdbCheckScreenState extends State<EvdbCheckScreen> {
         ),
         const SizedBox(height: 24),
         ElevatedButton(
-          onPressed: () => Navigator.pushNamedAndRemoveUntil(context, "/home", (route) => false),
+          onPressed: () => Navigator.pushNamedAndRemoveUntil(context, "/main", (route) => false),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.electricBlue,
             padding: const EdgeInsets.symmetric(vertical: 16),

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EV Charger Admin</title>
+  <link rel="stylesheet" href="/admin/styles.css" />
+</head>
+<body>
+  <div id="login-screen" class="login-screen hidden">
+    <div class="login-card">
+      <div class="login-logo">⚡</div>
+      <h1>EV Charger Admin</h1>
+      <p class="muted">Sign in with your admin account</p>
+      <label>Email</label>
+      <input id="login-email" type="email" value="admin@gmail.com" />
+      <label>Password</label>
+      <input id="login-password" type="password" value="Law.1234" />
+      <button id="login-btn" class="btn primary">Sign In</button>
+      <p id="login-error" class="error"></p>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">⚡</span>
+        <span>EV Charger Admin</span>
+      </div>
+      <div class="topbar-actions">
+        <button id="logout-btn" class="btn ghost">Logout</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <section class="stats">
+        <div class="stat-card"><span>Open tickets</span><strong id="stat-open">0</strong></div>
+        <div class="stat-card"><span>In progress</span><strong id="stat-progress">0</strong></div>
+        <div class="stat-card"><span>Complete</span><strong id="stat-complete">0</strong></div>
+        <div class="stat-card"><span>Total</span><strong id="stat-total">0</strong></div>
+      </section>
+
+      <section class="toolbar">
+        <input id="search" type="search" placeholder="Search ticket ID, customer, charger..." />
+        <select id="filter-status">
+          <option value="all">All status</option>
+          <option value="open">Open</option>
+          <option value="in_progress">In progress</option>
+          <option value="complete">Complete</option>
+        </select>
+        <select id="filter-issue">
+          <option value="all">All issue types</option>
+        </select>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ticket ID</th>
+              <th>Customer</th>
+              <th>Issue type</th>
+              <th>Charger brand</th>
+              <th>Assigned to</th>
+              <th>Status</th>
+              <th>Time</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="ticket-rows"></tbody>
+        </table>
+        <p id="empty-state" class="empty hidden">No tickets found.</p>
+      </section>
+    </main>
+  </div>
+
+  <script src="/admin/app.js"></script>
+  <script>
+    AdminApp.initListPage();
+  </script>
+</body>
+</html>

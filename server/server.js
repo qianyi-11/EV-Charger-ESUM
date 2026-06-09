@@ -2,6 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import {
   processOcr,
   chatAssistant
@@ -10,16 +12,33 @@ import { runYoloInference, runIsolatorYoloInference } from './services/yolo.js';
 import { runGatewayDetection, runRedViaWorker, warmVisionWorker } from './services/vision_worker.js';
 import { analyzeEvdbCompliance } from './services/evdb_analyzer.js';
 import { analyzeBlinkingVideo } from './services/blinking_detector.js';
+import authRoutes from './routes/auth.js';
+import ticketRoutes from './routes/tickets.js';
+import { ensureDefaultAdmin } from './services/auth_service.js';
 
 // Load environment variables from .env file
 dotenv.config();
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Enable cross-origin resource sharing so the Flutter mobile client can connect
 app.use(cors());
 app.use(express.json());
+
+// Shared ticket + auth API (JWT, role: user | admin)
+app.use('/api/auth', authRoutes);
+app.use('/api/tickets', ticketRoutes);
+
+// Admin dashboard (browser) — http://localhost:5000/admin
+app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin', 'index.html'));
+});
+app.get('/admin/ticket', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin', 'ticket.html'));
+});
 
 // Set up memory storage for multipart/form-data file uploads
 const upload = multer({ storage: multer.memoryStorage() });
@@ -151,13 +170,14 @@ app.post('/api/vision/analyze-evdb', upload.single('image'), async (req, res) =>
   }
 });
 
-function isChargerClass(className) {
-  const name = (className || '').toLowerCase();
-  return name.includes('charger') || name.includes('gateway') || name.includes('body');
-}
+const CHARGER_MIN_CONFIDENCE = 0.58;
 
 function normalizeDetClass(className) {
   return (className || '').toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isChargerClass(className) {
+  return normalizeDetClass(className) === 'ev_charger';
 }
 
 function isIsolatorOnClass(className) {
@@ -222,8 +242,8 @@ function parseChargerBox(raw) {
   return null;
 }
 
-/** Pick the highest-confidence YOLO detection for the charger body. */
-function pickChargerBox(detections) {
+/** Pick the highest-confidence ev_charger detection above the confidence floor. */
+function pickChargerDetection(detections) {
   if (!Array.isArray(detections) || !detections.length) return null;
 
   const chargerDets = detections.filter((d) => isChargerClass(d.class));
@@ -232,7 +252,13 @@ function pickChargerBox(detections) {
   const best = chargerDets.reduce((a, b) =>
     (b.confidence ?? 0) > (a.confidence ?? 0) ? b : a
   );
-  return Array.isArray(best.box) && best.box.length === 4 ? best.box : null;
+  if ((best.confidence ?? 0) < CHARGER_MIN_CONFIDENCE) return null;
+  if (!Array.isArray(best.box) || best.box.length !== 4) return null;
+  return best;
+}
+
+function pickChargerBox(detections) {
+  return pickChargerDetection(detections)?.box ?? null;
 }
 
 /**
@@ -250,20 +276,34 @@ app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) 
 
     let chargerDetected = gatewayResult.chargerDetected ?? false;
     let chargerBox = gatewayResult.chargerBox ?? null;
+    let chargerConfidence = gatewayResult.chargerConfidence ?? 0;
+    let chargerClass = gatewayResult.chargerClass ?? null;
 
     if (!chargerDetected && gatewayResult.mock) {
       chargerDetected = true;
       chargerBox = gatewayResult.detections?.[0]?.box ?? chargerBox;
+      chargerConfidence = gatewayResult.detections?.[0]?.confidence ?? 0.95;
+      chargerClass = gatewayResult.detections?.[0]?.class ?? 'ev_charger';
       console.log('[Express Gateway Route] Charger assumed present (Mock mode enabled).');
     }
 
     if (!chargerDetected && !gatewayResult.mock) {
-      console.log('[Express Gateway Route] Charger NOT detected - YOLO analysis failed or no charger in frame.');
+      const weakEv = (gatewayResult.detections || []).filter((d) => isChargerClass(d.class));
+      if (weakEv.length) {
+        const top = weakEv.reduce((a, b) => ((b.confidence ?? 0) > (a.confidence ?? 0) ? b : a));
+        console.log(
+          `[Express Gateway Route] ev_charger below threshold: ${top.class}(${top.confidence}) ` +
+          `< ${CHARGER_MIN_CONFIDENCE}`,
+        );
+      } else {
+        console.log('[Express Gateway Route] Charger NOT detected - no ev_charger in frame.');
+      }
     }
 
     console.log(
-      `[Express Gateway Route] charger=${chargerDetected} light=${gatewayResult.lightDetected} ` +
-      `color=${gatewayResult.lightColor} conf=${gatewayResult.confidence ?? 0} ` +
+      `[Express Gateway Route] charger=${chargerDetected} class=${chargerClass ?? 'n/a'} ` +
+      `yoloConf=${chargerConfidence} light=${gatewayResult.lightDetected} ` +
+      `color=${gatewayResult.lightColor} ledConf=${gatewayResult.confidence ?? 0} ` +
       `roi=${gatewayResult.opencvMethod ?? 'n/a'}`
     );
 
@@ -273,6 +313,8 @@ app.post('/api/vision/detect-gateway', upload.single('image'), async (req, res) 
       lightDetected: gatewayResult.lightDetected ?? false,
       lightColor: gatewayResult.lightColor ?? 'OFF',
       confidence: gatewayResult.confidence ?? 0,
+      chargerConfidence,
+      chargerClass,
       detections: gatewayResult.detections || [],
       chargerBox,
       yoloSuccess: gatewayResult.yoloSuccess ?? gatewayResult.success,
@@ -465,10 +507,13 @@ app.get('/health', (req, res) => {
 
 // Boot the server
 warmVisionWorker();
+await ensureDefaultAdmin();
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`================================================================`);
   console.log(` REXHARGE EV DIAGNOSTICS PROXY SERVER RUNNING`);
   console.log(` Endpoint: http://localhost:${PORT}`);
+  console.log(` Admin UI: http://localhost:${PORT}/admin`);
+  console.log(` Tickets API: http://localhost:${PORT}/api/tickets`);
   console.log(` Mode: ${process.env.GEMINI_API_KEY ? 'Active Gemini AI' : 'Simulated Offline Mock'}`);
   console.log(` Vision: warm YOLO worker (model preloaded at startup)`);
   console.log(`================================================================`);

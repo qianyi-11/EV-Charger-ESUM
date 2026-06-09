@@ -232,6 +232,8 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
     setState(() {
       _phase = EvdbPhase.scanning;
       _retakeReason = null;
+      _captureInFlight = false;
+      _cameraReady = false;
       _stepMcb = null;
       _stepRccb = null;
       _stepTypeA = null;

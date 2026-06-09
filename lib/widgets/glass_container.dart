@@ -30,8 +30,9 @@ class GlassContainer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = context.adaptive;
     final roundedRadius = borderRadius ?? BorderRadius.circular(16);
-    
+
     return Container(
       width: width,
       height: height,
@@ -39,7 +40,7 @@ class GlassContainer extends StatelessWidget {
       decoration: BoxDecoration(
         boxShadow: shadows ?? [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withOpacity(adaptive.isDark ? 0.3 : 0.08),
             blurRadius: 32,
             offset: const Offset(0, 8),
           ),
@@ -52,19 +53,24 @@ class GlassContainer extends StatelessWidget {
           child: Container(
             padding: padding,
             decoration: BoxDecoration(
-              color: bgColor ?? AppColors.glassBg,
+              color: bgColor ?? adaptive.glassBg,
               borderRadius: roundedRadius,
               border: Border.all(
-                color: borderColor ?? AppColors.glassBorder,
+                color: borderColor ?? adaptive.glassBorder,
                 width: 1.0,
               ),
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: [
-                  Colors.white.withOpacity(0.05),
-                  Colors.white.withOpacity(0.01),
-                ],
+                colors: adaptive.isDark
+                    ? [
+                        Colors.white.withOpacity(0.05),
+                        Colors.white.withOpacity(0.01),
+                      ]
+                    : [
+                        Colors.white.withOpacity(0.95),
+                        Colors.white.withOpacity(0.85),
+                      ],
               ),
             ),
             child: child,

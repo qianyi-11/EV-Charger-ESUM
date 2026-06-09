@@ -17,6 +17,55 @@ class AppColors {
 }
 
 class AppTheme {
+  static const Color lightBackground = Color(0xFFF4F6FB);
+  static const Color lightSurface = Color(0xFFFFFFFF);
+  static const Color lightTextPrimary = Color(0xFF1A1F35);
+  static const Color lightTextSecondary = Color(0xFF5C6B8A);
+
+  static ThemeData get lightTheme {
+    return ThemeData.light().copyWith(
+      scaffoldBackgroundColor: lightBackground,
+      colorScheme: const ColorScheme.light(
+        primary: AppColors.electricBlue,
+        secondary: AppColors.electricBlue,
+        error: AppColors.dangerRed,
+        surface: lightSurface,
+      ),
+      textTheme: const TextTheme(
+        headlineLarge: TextStyle(
+          fontSize: 32,
+          fontWeight: FontWeight.bold,
+          color: lightTextPrimary,
+        ),
+        headlineMedium: TextStyle(
+          fontSize: 24,
+          fontWeight: FontWeight.w600,
+          color: lightTextPrimary,
+        ),
+        titleLarge: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w500,
+          color: lightTextPrimary,
+        ),
+        bodyLarge: TextStyle(
+          fontSize: 16,
+          color: lightTextPrimary,
+          height: 1.5,
+        ),
+        bodyMedium: TextStyle(
+          fontSize: 14,
+          color: lightTextSecondary,
+          height: 1.4,
+        ),
+      ),
+      iconTheme: const IconThemeData(color: AppColors.electricBlue),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: lightSurface,
+        indicatorColor: AppColors.electricBlue.withValues(alpha: 0.15),
+      ),
+    );
+  }
+
   static ThemeData get darkTheme {
     return ThemeData.dark().copyWith(
       scaffoldBackgroundColor: AppColors.background,
@@ -89,4 +138,23 @@ class AppTheme {
       ),
     ];
   }
+}
+
+/// Theme-aware colors for screens that previously used static [AppColors].
+class AdaptiveTheme {
+  final bool isDark;
+  const AdaptiveTheme(this.isDark);
+
+  Color get background => isDark ? AppColors.background : AppTheme.lightBackground;
+  Color get surface => isDark ? AppColors.secondaryBg : AppTheme.lightSurface;
+  Color get surfaceAlt => isDark ? AppColors.tertiaryBg : const Color(0xFFE8ECF4);
+  Color get textPrimary => isDark ? AppColors.textPrimary : AppTheme.lightTextPrimary;
+  Color get textSecondary => isDark ? AppColors.textSecondary : AppTheme.lightTextSecondary;
+  Color get glassBg => isDark ? AppColors.glassBg : const Color(0xCCFFFFFF);
+  Color get glassBorder => isDark ? AppColors.glassBorder : const Color(0x22000000);
+}
+
+extension AdaptiveThemeContext on BuildContext {
+  AdaptiveTheme get adaptive =>
+      AdaptiveTheme(Theme.of(this).brightness == Brightness.dark);
 }

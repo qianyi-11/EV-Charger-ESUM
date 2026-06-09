@@ -48,6 +48,7 @@ dependencies:
   google_generative_ai: ^0.4.7
   shared_preferences: ^2.5.3
   provider: ^6.1.5+1
+  firebase_auth: ^6.5.2
 
 dev_dependencies:
   flutter_test:
