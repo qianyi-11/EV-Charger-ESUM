@@ -262,8 +262,10 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = context.adaptive;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _phase == EvdbPhase.scanning ? Colors.black : AppTheme.lightBackground,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -288,10 +290,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
               overlay: const SizedBox.shrink(),
             )
           else
-            ColorFiltered(
-              colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.5), BlendMode.darken),
-              child: Container(color: Colors.blueGrey.shade900),
-            ),
+            Container(color: AppTheme.lightBackground),
 
           if (_phase == EvdbPhase.scanning)
             AnimatedPositioned(
@@ -303,9 +302,10 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
               child: Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.85),
+                  color: AppTheme.lightSurface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.electricBlue.withOpacity(0.5)),
+                  border: Border.all(color: AppTheme.lightCardBorder),
+                  boxShadow: AppTheme.lightCardShadow,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -317,7 +317,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                         Expanded(
                           child: Text(
                             'Step 4: Photograph the breaker panel (EVDB) so we can see the MCB and RCCB switches clearly.',
-                            style: TextStyle(color: Colors.white, fontSize: 14),
+                            style: TextStyle(color: AppTheme.lightTextPrimary, fontSize: 14),
                           ),
                         ),
                       ],
@@ -326,7 +326,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                       const SizedBox(height: 10),
                       Text(
                         'Spec plate voltage: ${_state.inputVoltage}',
-                        style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        style: const TextStyle(color: AppTheme.lightTextSecondary, fontSize: 12),
                       ),
                     ],
                   ],
@@ -350,16 +350,16 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.camera_alt, color: Colors.black),
+                        : const Icon(Icons.camera_alt, color: Colors.white),
                     label: Text(
                       _captureInFlight
                           ? 'Capturing...'
                           : _cameraReady
                               ? 'Capture EVDB Photo'
                               : 'Starting camera...',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.electricBlue,
@@ -393,9 +393,10 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                 margin: const EdgeInsets.symmetric(horizontal: 32),
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Colors.black87,
+                  color: AppTheme.lightSurface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.glassBorder),
+                  border: Border.all(color: AppTheme.lightCardBorder),
+                  boxShadow: AppTheme.lightCardShadow,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -427,8 +428,8 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                                   : _lastResult?.isCompliant == true
                                       ? 'EVDB Compliant'
                                       : 'Protection Issue',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: adaptive.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -457,7 +458,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                           style: ElevatedButton.styleFrom(backgroundColor: AppColors.electricBlue),
                           child: const Text(
                             'Try Again',
-                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -486,11 +487,12 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
   }
 
   Widget _checkItem(String label, bool? passed) {
+    final adaptive = context.adaptive;
     final IconData icon;
     final Color color;
     if (passed == null) {
       icon = Icons.check_box_outline_blank;
-      color = Colors.white24;
+      color = adaptive.textSecondary;
     } else if (passed) {
       icon = Icons.check_box;
       color = AppColors.successGreen;
@@ -507,7 +509,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
           child: Text(
             label,
             style: TextStyle(
-              color: passed == null ? Colors.white54 : Colors.white,
+              color: passed == null ? adaptive.textSecondary : adaptive.textPrimary,
               fontSize: 13,
             ),
           ),

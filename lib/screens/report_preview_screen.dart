@@ -94,15 +94,15 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                             ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
-                            : const Icon(Icons.download, color: Colors.black),
+                            : const Icon(Icons.download, color: Colors.white),
                         label: Text(
                           _exporting ? 'Preparing PDF...' : 'Export PDF',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
-                            color: Colors.black,
+                            color: Colors.white,
                           ),
                         ),
                         style: ElevatedButton.styleFrom(

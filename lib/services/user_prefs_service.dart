@@ -22,7 +22,7 @@ class UserPrefsService {
     await prefs.setString(_usernameKey, name.trim());
   }
 
-  static Future<bool> loadDarkTheme({bool defaultValue = true}) async {
+  static Future<bool> loadDarkTheme({bool defaultValue = false}) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_darkThemeKey) ?? defaultValue;
   }

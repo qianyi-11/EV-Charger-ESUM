@@ -63,30 +63,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       backgroundColor: adaptive.background,
-      appBar: widget.embeddedInShell
-          ? AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              automaticallyImplyLeading: false,
-              title: Text('Settings', style: TextStyle(color: adaptive.textPrimary)),
-            )
-          : AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              title: Text('Settings', style: TextStyle(color: adaptive.textPrimary)),
-            ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildProfileSection(),
-              const SizedBox(height: 24),
-              _buildSectionHeader(Icons.dns_outlined, 'Dev Server'),
-              const SizedBox(height: 12),
-              _buildDevServerCard(),
-              const SizedBox(height: 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(widget.embeddedInShell ? 20 : 12, 16, 20, 8),
+              child: Row(
+                children: [
+                  if (!widget.embeddedInShell)
+                    IconButton(
+                      icon: Icon(Icons.arrow_back, color: adaptive.textPrimary),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Settings',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Account & preferences',
+                          style: TextStyle(color: adaptive.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildProfileSection(),
+                    const SizedBox(height: 24),
               _buildSectionHeader(Icons.notifications_none_outlined, 'Notifications'),
               const SizedBox(height: 12),
               _buildToggleCard(
@@ -104,6 +123,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: _state.darkTheme,
                 onChanged: (v) => _state.toggleDarkTheme(newValue: v),
               ),
+              const SizedBox(height: 24),
+              _buildSectionHeader(Icons.dns_outlined, 'Dev Server'),
+              const SizedBox(height: 12),
+              _buildDevServerCard(),
               const SizedBox(height: 24),
               _buildSectionHeader(Icons.info_outline, 'About'),
               const SizedBox(height: 12),
@@ -143,9 +166,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: TextStyle(color: AppColors.textSecondary, fontSize: 11),
                 ),
               ),
-              const SizedBox(height: 24),
-            ],
-          ),
+                    const SizedBox(height: 24),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -155,37 +181,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final adaptive = context.adaptive;
     final initial = _state.username.isNotEmpty ? _state.username[0].toUpperCase() : 'E';
 
-    return GlassContainer(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundColor: AppColors.electricBlue.withValues(alpha: 0.15),
-            child: Text(
-              initial,
-              style: const TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: AppColors.electricBlue,
-              ),
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 40,
+          backgroundColor: AppColors.electricBlue.withValues(alpha: 0.15),
+          child: Text(
+            initial,
+            style: const TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+              color: AppColors.electricBlue,
             ),
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: Text(
-              _state.username,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: adaptive.textPrimary,
-              ),
-            ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          _state.username,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: adaptive.textPrimary,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 

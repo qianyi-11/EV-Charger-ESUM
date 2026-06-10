@@ -558,7 +558,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text("Open Camera", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+              child: const Text("Open Camera", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
             ),
           ],
         );
@@ -580,16 +580,16 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
-                  : const Icon(Icons.camera_alt, color: Colors.black),
+                  : const Icon(Icons.camera_alt, color: Colors.white),
               label: Text(
                 _captureInFlight
                     ? "Capturing..."
                     : _cameraReady
                         ? "Capture Photo"
                         : "Starting camera...",
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.electricBlue,
@@ -634,7 +634,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text("Retake Photo", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+              child: const Text("Retake Photo", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
             ),
           ],
         );

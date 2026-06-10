@@ -280,15 +280,6 @@ class DiagnosticState {
 
   /// Rebuild fault details from a saved recent-activity entry.
   List<DetectedFault> faultsFromActivityRecord(Map<String, dynamic> record) {
-    final rawFaults = record['faults'];
-    if (rawFaults is List && rawFaults.isNotEmpty) {
-      return rawFaults
-          .whereType<Map>()
-          .map((f) => DetectedFault.fromMap(Map<String, dynamic>.from(f)))
-          .where((f) => f.faultType.isNotEmpty)
-          .toList();
-    }
-
     final code = (record['code'] ?? record['errorCode'] ?? '').toString();
     final findings = record['scanFindings'] is List
         ? record['scanFindings'].map((e) => e.toString()).toList()
@@ -296,6 +287,18 @@ class DiagnosticState {
     final blinkCount = record['blinkCount'] is int
         ? record['blinkCount'] as int
         : blinkCountFromCode(code);
+
+    final rawFaults = record['faults'];
+    if (rawFaults is List && rawFaults.isNotEmpty) {
+      final parsed = rawFaults
+          .where((f) => f is Map)
+          .map((f) => DetectedFault.fromMap(Map<String, dynamic>.from(f as Map)))
+          .where((f) => f.faultType.isNotEmpty || f.faultDetail.isNotEmpty)
+          .toList();
+      if (parsed.isNotEmpty) return parsed;
+    }
+
+    if (code.isEmpty) return const [];
 
     return FaultCatalog.forErrorCode(
       code,
@@ -345,12 +348,12 @@ class DiagnosticState {
   // ---------- Settings & profile ----------
   String username = 'EV User';
   String language = 'English';
-  bool darkTheme = true;
+  bool darkTheme = false;
   bool pushNotifications = true;
 
   Future<void> loadUserProfile() async {
     username = await UserPrefsService.loadUsername();
-    darkTheme = await UserPrefsService.loadDarkTheme(defaultValue: darkTheme);
+    darkTheme = await UserPrefsService.loadDarkTheme(defaultValue: false);
     recentActivity = await UserPrefsService.loadRecentActivity();
     _notifyListeners();
   }

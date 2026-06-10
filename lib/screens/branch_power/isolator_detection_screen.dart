@@ -208,11 +208,15 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
   }
 
   void _showIsolatorExample(BuildContext context) {
+    final adaptive = context.adaptive;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: AppColors.background,
-        title: const Text("Isolator Switch Example", style: TextStyle(color: Colors.white)),
+        backgroundColor: adaptive.surface,
+        title: Text(
+          'Isolator Switch Example',
+          style: TextStyle(color: adaptive.textPrimary, fontWeight: FontWeight.bold),
+        ),
         content: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Image.asset(
@@ -232,8 +236,10 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = context.adaptive;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: _phase == IsolatorPhase.scanning ? Colors.black : AppTheme.lightBackground,
       body: Stack(
         fit: StackFit.expand,
         children: [
@@ -265,10 +271,7 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
               overlay: const SizedBox.shrink(),
             )
           else
-            ColorFiltered(
-              colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.5), BlendMode.darken),
-              child: Container(color: Colors.blueGrey.shade900),
-            ),
+            Container(color: AppTheme.lightBackground),
 
           if (_phase == IsolatorPhase.scanning)
             AnimatedPositioned(
@@ -280,9 +283,10 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.85),
+                  color: AppTheme.lightSurface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.warningOrange.withOpacity(0.5)),
+                  border: Border.all(color: AppTheme.lightCardBorder),
+                  boxShadow: AppTheme.lightCardShadow,
                 ),
                 child: Row(
                   children: [
@@ -290,8 +294,8 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                     const SizedBox(width: 12),
                     const Expanded(
                       child: Text(
-                        "Step 3: Point your camera at the isolator switch beside the charger, or upload a photo from your gallery.",
-                        style: TextStyle(color: Colors.white, fontSize: 14),
+                        'Step 3: Point your camera at the isolator switch beside the charger, or upload a photo from your gallery.',
+                        style: TextStyle(color: AppTheme.lightTextPrimary, fontSize: 14),
                       ),
                     ),
                     IconButton(
@@ -319,16 +323,16 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                         ? const SizedBox(
                             width: 18,
                             height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
-                        : const Icon(Icons.camera_alt, color: Colors.black),
+                        : const Icon(Icons.camera_alt, color: Colors.white),
                     label: Text(
                       _captureInFlight
                           ? 'Capturing...'
                           : _cameraReady
                               ? 'Capture Isolator Photo'
                               : 'Starting camera...',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.electricBlue,
@@ -362,9 +366,10 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                 margin: const EdgeInsets.symmetric(horizontal: 40),
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Colors.black87,
+                  color: AppTheme.lightSurface,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.glassBorder),
+                  border: Border.all(color: AppTheme.lightCardBorder),
+                  boxShadow: AppTheme.lightCardShadow,
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -392,8 +397,8 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                               : _phase == IsolatorPhase.resultOn
                                   ? 'Analysis Complete'
                                   : 'Isolator OFF',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: adaptive.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -412,7 +417,7 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                     ),
                     if (_phase == IsolatorPhase.resultOff) ...[
                       const SizedBox(height: 24),
-                      const Divider(color: Colors.white24),
+                      Divider(color: adaptive.sectionDivider),
                       const SizedBox(height: 12),
                       const Text(
                         'Please flip the isolator switch to the ON position, then capture again.',
@@ -430,7 +435,7 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                           ),
                           child: const Text(
                             'Capture Again',
-                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -443,8 +448,8 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                             await _navigateToEvdb();
                           },
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white70,
-                            side: const BorderSide(color: Colors.white24),
+                            foregroundColor: adaptive.textPrimary,
+                            side: BorderSide(color: adaptive.subtleBorder),
                           ),
                           child: const Text('I have turned it ON'),
                         ),
@@ -468,17 +473,20 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
   }
 
   Widget _buildChecklistItem(String label, bool isDone, Color? overrideColor) {
+    final adaptive = context.adaptive;
     return Row(
       children: [
         if (isDone)
           Icon(Icons.check_box, color: overrideColor ?? AppColors.successGreen, size: 20)
         else
-          const Icon(Icons.check_box_outline_blank, color: Colors.white24, size: 20),
+          Icon(Icons.check_box_outline_blank, color: adaptive.textSecondary, size: 20),
         const SizedBox(width: 12),
         Text(
           label,
           style: TextStyle(
-            color: isDone ? (overrideColor ?? Colors.white) : Colors.white54,
+            color: isDone
+                ? (overrideColor ?? adaptive.textPrimary)
+                : adaptive.textSecondary,
             fontSize: 14,
           ),
         ),

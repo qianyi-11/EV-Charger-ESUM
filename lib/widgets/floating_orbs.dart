@@ -56,29 +56,29 @@ class _FloatingOrbsBackgroundState extends State<FloatingOrbsBackground>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Stack(
       children: [
-        // The background painting canvas
         Positioned.fill(
           child: Container(
             color: Theme.of(context).scaffoldBackgroundColor,
           ),
         ),
-        // Draw the orbs dynamically
-        Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              return CustomPaint(
-                painter: _OrbsPainter(
-                  orbs: _orbs,
-                  progress: _controller.value,
-                ),
-              );
-            },
+        if (isDark)
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                return CustomPaint(
+                  painter: _OrbsPainter(
+                    orbs: _orbs,
+                    progress: _controller.value,
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-        // Foreground Content
         if (widget.child != null) Positioned.fill(child: widget.child!),
       ],
     );

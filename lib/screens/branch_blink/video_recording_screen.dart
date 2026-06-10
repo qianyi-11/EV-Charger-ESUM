@@ -428,10 +428,10 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
               bottom: 48,
               child: ElevatedButton.icon(
                 onPressed: _startRecording,
-                icon: const Icon(Icons.fiber_manual_record, color: Colors.black),
+                icon: const Icon(Icons.fiber_manual_record, color: Colors.white),
                 label: const Text(
                   'Start Recording',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.electricBlue,

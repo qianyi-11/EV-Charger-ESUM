@@ -173,14 +173,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   onPressed: _loading ? null : _signUp,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.electricBlue,
-                    foregroundColor: Colors.black,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   child: _loading
                       ? const SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
                       : const Text('Sign Up', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 ),

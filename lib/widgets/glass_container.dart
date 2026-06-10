@@ -31,20 +31,34 @@ class GlassContainer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final adaptive = context.adaptive;
-    final roundedRadius = borderRadius ?? BorderRadius.circular(16);
+    final roundedRadius = borderRadius ?? BorderRadius.circular(20);
+    final cardShadow = shadows ?? adaptive.cardShadow;
+
+    if (!adaptive.isDark) {
+      return Container(
+        width: width,
+        height: height,
+        margin: margin,
+        padding: padding,
+        decoration: BoxDecoration(
+          color: bgColor ?? AppTheme.lightSurface,
+          borderRadius: roundedRadius,
+          border: Border.all(
+            color: borderColor ?? AppTheme.lightCardBorder,
+            width: 1,
+          ),
+          boxShadow: cardShadow,
+        ),
+        child: child,
+      );
+    }
 
     return Container(
       width: width,
       height: height,
       margin: margin,
       decoration: BoxDecoration(
-        boxShadow: shadows ?? [
-          BoxShadow(
-            color: Colors.black.withOpacity(adaptive.isDark ? 0.3 : 0.08),
-            blurRadius: 32,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        boxShadow: cardShadow,
       ),
       child: ClipRRect(
         borderRadius: roundedRadius,
@@ -62,15 +76,10 @@ class GlassContainer extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: adaptive.isDark
-                    ? [
-                        Colors.white.withOpacity(0.05),
-                        Colors.white.withOpacity(0.01),
-                      ]
-                    : [
-                        Colors.white.withOpacity(0.95),
-                        Colors.white.withOpacity(0.85),
-                      ],
+                colors: [
+                  Colors.white.withValues(alpha: 0.05),
+                  Colors.white.withValues(alpha: 0.01),
+                ],
               ),
             ),
             child: child,

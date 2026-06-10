@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const Color electricBlue = Color(0xFF00D4FF);
+  static const Color electricBlue = Color(0xFF2563EB);
   static const Color dangerRed = Color(0xFFFF2D55);
-  static const Color successGreen = Color(0xFF00FF88);
+  static const Color successGreen = Color(0xFF10B981);
   static const Color warningOrange = Color(0xFFFFA500);
-  
+
   static const Color background = Color(0xFF0A0E1A);
   static const Color secondaryBg = Color(0xFF1A1F35);
   static const Color tertiaryBg = Color(0xFF1E2436);
-  
+
   static const Color textPrimary = Colors.white;
   static const Color textSecondary = Color(0xFF8F9BB3);
   static const Color glassBorder = Color(0x1BFFFFFF);
@@ -17,10 +17,27 @@ class AppColors {
 }
 
 class AppTheme {
-  static const Color lightBackground = Color(0xFFF4F6FB);
+  /// Extra space below the status bar so page titles sit slightly lower.
+  static const double pageTopInset = 8;
+
+  static const Color lightBackground = Color(0xFFF2F4F7);
   static const Color lightSurface = Color(0xFFFFFFFF);
-  static const Color lightTextPrimary = Color(0xFF1A1F35);
-  static const Color lightTextSecondary = Color(0xFF5C6B8A);
+  static const Color lightTextPrimary = Color(0xFF111827);
+  static const Color lightTextSecondary = Color(0xFF6B7280);
+  static const Color lightCardBorder = Color(0xFFE5E7EB);
+
+  static List<BoxShadow> get lightCardShadow => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.06),
+      blurRadius: 20,
+      offset: const Offset(0, 4),
+    ),
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.03),
+      blurRadius: 6,
+      offset: const Offset(0, 1),
+    ),
+  ];
 
   static ThemeData get lightTheme {
     return ThemeData.light().copyWith(
@@ -32,11 +49,11 @@ class AppTheme {
         error: AppColors.dangerRed,
         surface: lightSurface,
         onSurface: lightTextPrimary,
-        onBackground: lightTextPrimary,
       ),
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        scrolledUnderElevation: 0,
         foregroundColor: lightTextPrimary,
         iconTheme: IconThemeData(color: lightTextPrimary),
         titleTextStyle: TextStyle(
@@ -73,9 +90,25 @@ class AppTheme {
         ),
       ),
       iconTheme: const IconThemeData(color: AppColors.electricBlue),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          foregroundColor: Colors.white,
+          iconColor: Colors.white,
+          textStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          foregroundColor: Colors.white,
+          iconColor: Colors.white,
+        ),
+      ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: lightSurface,
-        indicatorColor: AppColors.electricBlue.withValues(alpha: 0.15),
+        indicatorColor: AppColors.electricBlue.withValues(alpha: 0.12),
+        surfaceTintColor: Colors.transparent,
+        elevation: 8,
+        shadowColor: Colors.black26,
       ),
     );
   }
@@ -123,6 +156,23 @@ class AppTheme {
       iconTheme: const IconThemeData(
         color: AppColors.electricBlue,
       ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          foregroundColor: Colors.white,
+          iconColor: Colors.white,
+          textStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          foregroundColor: Colors.white,
+          iconColor: Colors.white,
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: AppColors.secondaryBg,
+        indicatorColor: AppColors.electricBlue.withValues(alpha: 0.18),
+      ),
     );
   }
 
@@ -141,12 +191,12 @@ class AppTheme {
   static List<BoxShadow> glowShadow({Color color = AppColors.electricBlue, double intensity = 1.0}) {
     return [
       BoxShadow(
-        color: color.withOpacity(0.25 * intensity),
+        color: color.withValues(alpha: 0.25 * intensity),
         blurRadius: 16 * intensity,
         spreadRadius: 1 * intensity,
       ),
       BoxShadow(
-        color: color.withOpacity(0.12 * intensity),
+        color: color.withValues(alpha: 0.12 * intensity),
         blurRadius: 32 * intensity,
         spreadRadius: 2 * intensity,
       ),
@@ -161,19 +211,22 @@ class AdaptiveTheme {
 
   Color get background => isDark ? AppColors.background : AppTheme.lightBackground;
   Color get surface => isDark ? AppColors.secondaryBg : AppTheme.lightSurface;
-  Color get surfaceAlt => isDark ? AppColors.tertiaryBg : const Color(0xFFE8ECF4);
+  Color get surfaceAlt => isDark ? AppColors.tertiaryBg : const Color(0xFFF9FAFB);
   Color get textPrimary => isDark ? AppColors.textPrimary : AppTheme.lightTextPrimary;
   Color get textSecondary => isDark ? AppColors.textSecondary : AppTheme.lightTextSecondary;
-  Color get glassBg => isDark ? AppColors.glassBg : const Color(0xCCFFFFFF);
-  Color get glassBorder => isDark ? AppColors.glassBorder : const Color(0x22000000);
+  Color get glassBg => isDark ? AppColors.glassBg : AppTheme.lightSurface;
+  Color get glassBorder => isDark ? AppColors.glassBorder : AppTheme.lightCardBorder;
   Color get cardSurface => isDark ? const Color(0xFF0C1224) : AppTheme.lightSurface;
-  Color get sectionDivider => isDark ? const Color(0xFF1A2238) : const Color(0xFFE2E8F0);
+  Color get sectionDivider => isDark ? const Color(0xFF1A2238) : AppTheme.lightCardBorder;
   Color get subtleBorder => isDark
       ? Colors.white.withValues(alpha: 0.06)
-      : Colors.black.withValues(alpha: 0.08);
+      : AppTheme.lightCardBorder;
   Color get emptyFill => isDark
       ? Colors.white.withValues(alpha: 0.08)
-      : Colors.black.withValues(alpha: 0.06);
+      : const Color(0xFFF3F4F6);
+
+  List<BoxShadow> get cardShadow =>
+      isDark ? AppTheme.glowShadow(intensity: 0.4) : AppTheme.lightCardShadow;
 }
 
 extension AdaptiveThemeContext on BuildContext {

@@ -25,8 +25,8 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
   final _serialController = TextEditingController();
   final _detailsController = TextEditingController();
 
-  static const _green = Color(0xFF1B5E20);
-  static const _greenLight = Color(0xFFE8F5E9);
+  static const _blue = Color(0xFF2563EB);
+  static const _blueLight = Color(0xFFEFF6FF);
   static const _labelColor = Color(0xFF1A237E);
   static const _sectionGrey = Color(0xFF9E9E9E);
   static const _borderGrey = Color(0xFFE0E0E0);
@@ -212,7 +212,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: _green),
+            colorScheme: const ColorScheme.light(primary: _blue),
           ),
           child: child!,
         );
@@ -260,9 +260,10 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: _blueLight,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
-          side: const BorderSide(color: _green, width: 1.5),
+          side: const BorderSide(color: _blue, width: 1.5),
         ),
         title: const Row(
           children: [
@@ -271,7 +272,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
             Expanded(
               child: Text(
                 'How to find your serial number',
-                style: TextStyle(color: _green, fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(color: _blue, fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
           ],
@@ -282,17 +283,17 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
           children: [
             Text(
               '• Check the label sticker on the left/right/underside of the charger unit.',
-              style: TextStyle(color: _green, height: 1.5),
+              style: TextStyle(color: Colors.black87, height: 1.5),
             ),
             SizedBox(height: 8),
             Text(
               '• Look for a code often starting with "S/N", "SN", "SSN" or "TPN".',
-              style: TextStyle(color: _green, height: 1.5),
+              style: TextStyle(color: Colors.black87, height: 1.5),
             ),
             SizedBox(height: 8),
             Text(
               '• Also found on the installation certificate or warranty card.',
-              style: TextStyle(color: _green, height: 1.5),
+              style: TextStyle(color: Colors.black87, height: 1.5),
             ),
             Divider(height: 24),
             Text.rich(
@@ -302,7 +303,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
                 children: [
                   TextSpan(
                     text: 'SN1234567890',
-                    style: TextStyle(color: _green, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: _blue, fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -312,7 +313,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close', style: TextStyle(color: _green)),
+            child: const Text('Close', style: TextStyle(color: _blue)),
           ),
         ],
       ),
@@ -541,7 +542,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
                     width: 18,
                     height: 18,
                     decoration: const BoxDecoration(
-                      color: _green,
+                      color: _blue,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.help_outline, size: 12, color: Colors.white),
@@ -647,7 +648,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
               child: ElevatedButton(
                 onPressed: _submitting ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _green,
+                  backgroundColor: _blue,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
@@ -678,10 +679,10 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: _greenLight,
+            color: _blueLight,
             borderRadius: BorderRadius.circular(10),
           ),
-          child: const Icon(Icons.description_outlined, color: _green, size: 26),
+          child: const Icon(Icons.description_outlined, color: _blue, size: 26),
         ),
         const SizedBox(width: 12),
         const Expanded(
@@ -767,7 +768,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: _green, width: 1.5),
+          borderSide: const BorderSide(color: _blue, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -808,10 +809,10 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         decoration: BoxDecoration(
-          color: selected ? _greenLight : Colors.white,
+          color: selected ? _blueLight : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selected ? _green : _borderGrey,
+            color: selected ? _blue : _borderGrey,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -823,7 +824,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
           style: TextStyle(
             fontSize: 13,
             fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-            color: selected ? _green : Colors.black87,
+            color: selected ? _blue : Colors.black87,
           ),
         ),
       ),
@@ -839,10 +840,10 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
       onTap: onTap,
       child: Container(
         decoration: BoxDecoration(
-          color: selected ? _greenLight : Colors.white,
+          color: selected ? _blueLight : Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: selected ? _green : _borderGrey,
+            color: selected ? _blue : _borderGrey,
             width: selected ? 1.5 : 1,
           ),
         ),

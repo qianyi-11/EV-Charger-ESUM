@@ -393,7 +393,7 @@ class _EvdbCheckScreenState extends State<EvdbCheckScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Text("Start EVDB Detection", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+            child: const Text("Start EVDB Detection", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
           ),
         ],
       );
@@ -412,10 +412,10 @@ class _EvdbCheckScreenState extends State<EvdbCheckScreen> {
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: _startAnalysis,
-            icon: const Icon(Icons.camera_alt, color: Colors.black),
+            icon: const Icon(Icons.camera_alt, color: Colors.white),
             label: const Text(
               "Capture Photo",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.electricBlue,
@@ -524,7 +524,7 @@ class _EvdbCheckScreenState extends State<EvdbCheckScreen> {
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          child: const Text("Return to Dashboard", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+          child: const Text("Return to Dashboard", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
         ),
       ],
     );

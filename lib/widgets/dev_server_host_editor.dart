@@ -145,15 +145,18 @@ class _DevServerHostEditorState extends State<DevServerHostEditor> {
           onPressed: _serverTesting ? null : _saveAndTestServer,
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.electricBlue,
-            foregroundColor: Colors.black,
+            foregroundColor: Colors.white,
           ),
           child: _serverTesting
               ? const SizedBox(
                   height: 18,
                   width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                 )
-              : const Text('Save & Test Connection'),
+              : const Text(
+                  'Save & Test Connection',
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                ),
         ),
       ],
     );

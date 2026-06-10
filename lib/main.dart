@@ -68,6 +68,17 @@ class _RexhargeAppState extends State<RexhargeApp> {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: _state.darkTheme ? ThemeMode.dark : ThemeMode.light,
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            padding: mediaQuery.padding.copyWith(
+              top: mediaQuery.padding.top + AppTheme.pageTopInset,
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const AuthGate(),
       routes: {
         '/main': (context) => const MainShell(),

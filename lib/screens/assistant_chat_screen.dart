@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../widgets/glass_container.dart';
-import '../widgets/pulsing_glow.dart';
 import '../services/ml_model_service.dart';
 import '../models/diagnostic_state.dart';
 
@@ -153,69 +152,61 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
 
     return Scaffold(
       backgroundColor: adaptive.background,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        automaticallyImplyLeading: !widget.embeddedInShell,
-        leading: widget.embeddedInShell
-            ? null
-            : IconButton(
-                icon: Icon(Icons.arrow_back, color: adaptive.textPrimary),
-                onPressed: () => Navigator.pop(context),
-              ),
-        title: Row(
-          children: [
-            PulsingGlow(
-              glowColor: AppColors.successGreen,
-              minBlurRadius: 4,
-              maxBlurRadius: 10,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(color: AppColors.successGreen, shape: BoxShape.circle),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  "EVision AI Assistant",
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: adaptive.textPrimary),
-                ),
-                Text(
-                  "System Engineer Bot • Online",
-                  style: TextStyle(fontSize: 10, color: adaptive.textSecondary),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
       body: SafeArea(
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Chat bubble list
-            Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final msg = _messages[index];
-                  return _buildMessageBubble(msg);
-                },
+            Padding(
+              padding: EdgeInsets.fromLTRB(widget.embeddedInShell ? 20 : 12, 16, 20, 8),
+              child: Row(
+                children: [
+                  if (!widget.embeddedInShell)
+                    IconButton(
+                      icon: Icon(Icons.arrow_back, color: adaptive.textPrimary),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Assistant',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: -0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'System Engineer Bot • Online',
+                          style: TextStyle(color: adaptive.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-
-            // Typing Indicator
-            if (_isAiTyping) _buildTypingIndicator(),
-
-            // Suggested prompt grid on startup
-            if (_showSuggestions) _buildSuggestionsGrid(),
-
-            // Bottom Input Bar
-            _buildInputBar(),
+            Expanded(
+              child: Column(
+                children: [
+                  Expanded(
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      itemCount: _messages.length,
+                      itemBuilder: (context, index) {
+                        final msg = _messages[index];
+                        return _buildMessageBubble(msg);
+                      },
+                    ),
+                  ),
+                  if (_isAiTyping) _buildTypingIndicator(),
+                  if (_showSuggestions) _buildSuggestionsGrid(),
+                  _buildInputBar(),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -223,8 +214,9 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
   }
 
   Widget _buildMessageBubble(MessageModel msg) {
+    final adaptive = context.adaptive;
     final bool isUser = msg.isUser;
-    
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -235,11 +227,17 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
           children: [
             GlassContainer(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              bgColor: isUser ? AppColors.electricBlue.withOpacity(0.12) : AppColors.secondaryBg.withOpacity(0.6),
-              borderColor: isUser ? AppColors.electricBlue.withOpacity(0.3) : AppColors.glassBorder,
+              bgColor: isUser
+                  ? AppColors.electricBlue.withValues(alpha: adaptive.isDark ? 0.12 : 0.1)
+                  : (adaptive.isDark
+                      ? AppColors.secondaryBg.withValues(alpha: 0.6)
+                      : AppTheme.lightSurface),
+              borderColor: isUser
+                  ? AppColors.electricBlue.withValues(alpha: 0.3)
+                  : adaptive.glassBorder,
               child: Text(
                 msg.text,
-                style: const TextStyle(fontSize: 14, color: Colors.white, height: 1.4),
+                style: TextStyle(fontSize: 14, color: adaptive.textPrimary, height: 1.4),
               ),
             ),
             const SizedBox(height: 4),
@@ -279,16 +277,22 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
   }
 
   Widget _buildSuggestionsGrid() {
+    final adaptive = context.adaptive;
     final List<String> prompts = _knowledgeBase.keys.toList();
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            "Suggested Questions:",
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.textSecondary, letterSpacing: 0.5),
+          Text(
+            'Suggested Questions:',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: adaptive.textSecondary,
+              letterSpacing: 0.5,
+            ),
           ),
           const SizedBox(height: 8),
           GridView.builder(
@@ -312,7 +316,11 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
                       child: Text(
                         prompts[index],
                         textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: adaptive.textPrimary,
+                        ),
                       ),
                     ),
                   ),
@@ -326,45 +334,48 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
   }
 
   Widget _buildInputBar() {
+    final adaptive = context.adaptive;
+
     return GlassContainer(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      bgColor: adaptive.isDark ? null : AppTheme.lightSurface,
       borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       child: Row(
         children: [
-          // Voice Mic Button
-          GestureDetector(
-            onTap: () {
+          IconButton(
+            onPressed: () {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text("Voice recognition module initializing... Speak now."),
+                  content: Text('Voice recognition module initializing... Speak now.'),
                   backgroundColor: AppColors.secondaryBg,
                 ),
               );
             },
-            child: Container(
-              padding: const EdgeInsets.all(10),
-              decoration: const BoxDecoration(color: AppColors.secondaryBg, shape: BoxShape.circle),
-              child: const Icon(Icons.mic, color: AppColors.electricBlue, size: 20),
+            icon: Icon(
+              Icons.mic,
+              color: adaptive.isDark ? adaptive.textPrimary : Colors.black,
+              size: 22,
             ),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            splashRadius: 20,
           ),
-          const SizedBox(width: 8),
-          
-          // Text Input Box
+          const SizedBox(width: 4),
           Expanded(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               decoration: BoxDecoration(
-                color: Colors.black38,
+                color: adaptive.isDark ? Colors.black38 : Colors.white,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppColors.glassBorder),
+                border: Border.all(color: adaptive.subtleBorder),
               ),
               child: TextField(
                 controller: _inputController,
                 onSubmitted: _sendMessage,
-                style: const TextStyle(fontSize: 14, color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: "Ask me anything...",
-                  hintStyle: TextStyle(color: Colors.white24, fontSize: 13),
+                style: TextStyle(fontSize: 14, color: adaptive.textPrimary),
+                decoration: InputDecoration(
+                  hintText: 'Ask me anything...',
+                  hintStyle: TextStyle(color: adaptive.textSecondary, fontSize: 13),
                   border: InputBorder.none,
                 ),
               ),

@@ -32,9 +32,13 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
 
   bool get _isHistoricalView => widget.activityRecord != null;
 
-  List<DetectedFault> get _resolvedFaults => _isHistoricalView
-      ? _globalState.faultsFromActivityRecord(widget.activityRecord!)
-      : _globalState.resolvedFaults(widget.errorCode);
+  List<DetectedFault> get _resolvedFaults {
+    if (_isHistoricalView) {
+      final fromRecord = _globalState.faultsFromActivityRecord(widget.activityRecord!);
+      if (fromRecord.isNotEmpty) return fromRecord;
+    }
+    return _globalState.resolvedFaults(widget.errorCode);
+  }
 
   List<String> get _resolvedScanFindings => _isHistoricalView
       ? _globalState.scanFindingsFromActivityRecord(widget.activityRecord!)
@@ -178,14 +182,14 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
                 const SizedBox(height: 24),
                 _buildRecommendedActionsSection(faults),
               ],
+              const SizedBox(height: 28),
               if (!_isHistoricalView) ...[
-                const SizedBox(height: 28),
                 ElevatedButton.icon(
                   onPressed: _createTicket,
-                  icon: const Icon(Icons.confirmation_number_outlined, color: Colors.black),
+                  icon: const Icon(Icons.confirmation_number_outlined, color: Colors.white),
                   label: const Text(
                     'Create Ticket',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.electricBlue,
@@ -194,22 +198,24 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildActionGridButton(
-                        title: 'Generate Report',
-                        icon: Icons.file_copy_outlined,
-                        onTap: () => Navigator.pushNamed(
-                          context,
-                          '/report',
-                          arguments: {
-                            'errorCode': widget.errorCode,
-                            'activityRecord': widget.activityRecord,
-                          },
-                        ),
+              ],
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildActionGridButton(
+                      title: 'Generate Report',
+                      icon: Icons.file_copy_outlined,
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        '/report',
+                        arguments: {
+                          'errorCode': widget.errorCode,
+                          'activityRecord': widget.activityRecord,
+                        },
                       ),
                     ),
+                  ),
+                  if (!_isHistoricalView) ...[
                     const SizedBox(width: 12),
                     Expanded(
                       child: _buildActionGridButton(
@@ -219,9 +225,9 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
                       ),
                     ),
                   ],
-                ),
-                const SizedBox(height: 24),
-              ],
+                ],
+              ),
+              const SizedBox(height: 24),
             ],
           ),
         ),
@@ -547,10 +553,10 @@ class _GradientConfidenceBar extends StatelessWidget {
 
   static const _gradient = LinearGradient(
     colors: [
-      Color(0xFFFF3B30),
-      Color(0xFFFF9500),
-      Color(0xFFFFCC00),
-      Color(0xFF34C759),
+      Color(0xFF3B0764),
+      Color(0xFF5B21B6),
+      Color(0xFF7C3AED),
+      Color(0xFF9333EA),
     ],
   );
 

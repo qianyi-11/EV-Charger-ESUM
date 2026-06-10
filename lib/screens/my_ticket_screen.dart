@@ -108,10 +108,10 @@ class _MyTicketScreenState extends State<MyTicketScreen> {
                   alignment: Alignment.centerRight,
                   child: ElevatedButton.icon(
                     onPressed: _openNewTicket,
-                    icon: const Icon(Icons.add, size: 18, color: Colors.black),
+                    icon: const Icon(Icons.add, size: 18, color: Colors.white),
                     label: const Text(
                       'New Ticket',
-                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.electricBlue,

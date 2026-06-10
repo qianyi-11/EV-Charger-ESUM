@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../models/diagnostic_state.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/floating_orbs.dart';
+import 'diagnosis_result_screen.dart';
 
 class ActivityScreen extends StatefulWidget {
   const ActivityScreen({super.key});
@@ -131,11 +132,25 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: GestureDetector(
-                              onTap: () => Navigator.pushNamed(
-                                    context,
-                                    '/diagnosis/$code',
-                                    arguments: item,
+                              onTap: () {
+                                if (code.isEmpty || code == 'unknown') {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('This diagnosis record is missing fault details.'),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => DiagnosisResultScreen(
+                                      errorCode: code,
+                                      activityRecord: item,
+                                    ),
                                   ),
+                                );
+                              },
                               child: GlassContainer(
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                 child: Row(

@@ -85,7 +85,7 @@ class SplashScreen extends StatelessWidget {
                     onPressed: () => Navigator.pushReplacementNamed(context, '/main'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.electricBlue,
-                      foregroundColor: Colors.black,
+                      foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
                     child: const Text(

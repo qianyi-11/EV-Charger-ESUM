@@ -84,14 +84,14 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   onPressed: _loading ? null : _sendCode,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.electricBlue,
-                    foregroundColor: Colors.black,
+                    foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   child: _loading
                       ? const SizedBox(
                           width: 22,
                           height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                         )
                       : const Text(
                           'Send Verification Code',

@@ -28,7 +28,15 @@ class _CommonIssue {
 
 class _HomeScreenState extends State<HomeScreen> {
   final DiagnosticState _state = DiagnosticState();
-  final Set<int> _expandedIssues = {};
+  late final PageController _commonIssuesController;
+  int _commonIssuePage = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _state.addListener(_onStateChanged);
+    _commonIssuesController = PageController(viewportFraction: 0.88);
+  }
 
   static const List<_CommonIssue> _commonIssues = [
     _CommonIssue(
@@ -55,14 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _state.addListener(_onStateChanged);
-  }
-
-  @override
   void dispose() {
     _state.removeListener(_onStateChanged);
+    _commonIssuesController.dispose();
     super.dispose();
   }
 
@@ -124,19 +127,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const SizedBox(height: 28),
 
-                      // System Status Section
-                      Row(
-                        children: [
-                          const Icon(Icons.analytics_outlined, color: AppColors.electricBlue, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            "System Status",
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'System Status',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.3,
+                        ),
                       ),
                       const SizedBox(height: 12),
                       
@@ -149,7 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 context: context,
                                 title: "AI Model",
                                 value: "v2.4.1",
-                                indicatorColor: AppColors.successGreen,
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -158,7 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 context: context,
                                 title: "Accuracy",
                                 value: "98.5%",
-                                indicatorColor: AppColors.successGreen,
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -167,7 +161,6 @@ class _HomeScreenState extends State<HomeScreen> {
                                 context: context,
                                 title: "Latency",
                                 value: "45ms",
-                                indicatorColor: AppColors.successGreen,
                               ),
                             ),
                           ],
@@ -176,31 +169,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       const SizedBox(height: 28),
 
-                      Row(
-                        children: [
-                          const Icon(Icons.report_problem_outlined, color: AppColors.dangerRed, size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Common Issues',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ],
+                      Text(
+                        'Common Issues',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.3,
+                        ),
                       ),
                       const SizedBox(height: 12),
 
                       _buildAnimatedEntrance(
                         delayIndex: 2,
-                        child: Column(
-                          children: [
-                            for (var i = 0; i < _commonIssues.length; i++) ...[
-                              if (i > 0) const SizedBox(height: 10),
-                              _buildCommonIssueCard(context, _commonIssues[i], i),
-                            ],
-                          ],
-                        ),
+                        child: _buildCommonIssuesCarousel(context),
                       ),
 
                       const SizedBox(height: 24),
@@ -218,225 +198,281 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildStartDiagnosisHero(BuildContext context) {
     final adaptive = context.adaptive;
 
-    return _InteractiveCard(
-      onTap: () => Navigator.pushNamed(context, '/unified-detection'),
-      child: PulsingGlow(
-        glowColor: AppColors.electricBlue,
-        maxBlurRadius: 36,
-        minBlurRadius: 14,
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.electricBlue.withValues(alpha: adaptive.isDark ? 0.28 : 0.18),
-                adaptive.isDark
-                    ? const Color(0xFF0C1A2E)
-                    : AppColors.electricBlue.withValues(alpha: 0.06),
+    final content = Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: adaptive.isDark
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.electricBlue.withValues(alpha: 0.32),
+                  const Color(0xFF0C1A2E),
+                ],
+              )
+            : const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFEFF6FF),
+                  Color(0xFFDBEAFE),
+                ],
+              ),
+        border: Border.all(
+          color: adaptive.isDark
+              ? AppColors.electricBlue.withValues(alpha: 0.55)
+              : AppColors.electricBlue.withValues(alpha: 0.35),
+          width: 1.5,
+        ),
+        boxShadow: adaptive.isDark
+            ? adaptive.cardShadow
+            : [
+                BoxShadow(
+                  color: AppColors.electricBlue.withValues(alpha: 0.18),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.electricBlue,
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.electricBlue.withValues(alpha: 0.4),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
               ],
             ),
-            border: Border.all(
-              color: AppColors.electricBlue.withValues(alpha: 0.55),
-              width: 1.5,
+            child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 34),
+          ),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Start Diagnosis',
+                  style: TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: adaptive.isDark ? adaptive.textPrimary : AppColors.electricBlue,
+                    letterSpacing: -0.4,
+                    height: 1.15,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'AI-powered charger fault detection',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: adaptive.textSecondary,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Tap to begin scan',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.electricBlue.withValues(alpha: adaptive.isDark ? 0.9 : 1),
+                  ),
+                ),
+              ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.electricBlue.withValues(alpha: 0.22),
-                blurRadius: 24,
-                spreadRadius: 1,
-                offset: const Offset(0, 8),
-              ),
-            ],
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 56,
-                height: 56,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      blurRadius: 12,
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.camera_alt_rounded, color: AppColors.electricBlue, size: 28),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Start Diagnosis',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: adaptive.textPrimary,
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'AI-powered charger fault detection',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: adaptive.textSecondary,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.arrow_forward_ios, color: adaptive.textSecondary, size: 16),
-            ],
+          Icon(
+            Icons.arrow_forward_ios_rounded,
+            color: AppColors.electricBlue,
+            size: 22,
           ),
-        ),
+        ],
       ),
+    );
+
+    return _InteractiveCard(
+      onTap: () => Navigator.pushNamed(context, '/unified-detection'),
+      child: adaptive.isDark
+          ? PulsingGlow(
+              glowColor: AppColors.electricBlue,
+              maxBlurRadius: 36,
+              minBlurRadius: 14,
+              child: content,
+            )
+          : content,
     );
   }
 
-  void _toggleIssueExpanded(int index) {
-    setState(() {
-      if (_expandedIssues.contains(index)) {
-        _expandedIssues.remove(index);
-      } else {
-        _expandedIssues.add(index);
-      }
-    });
+  double _measureCommonIssuesCarouselHeight(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    const scrollPadding = 40.0;
+    final cardInnerWidth = (screenWidth - scrollPadding) * 0.88 - 4 - 28;
+
+    double maxHeight = 0;
+    for (final issue in _commonIssues) {
+      var height = 28.0;
+
+      final titlePainter = TextPainter(
+        text: TextSpan(
+          text: issue.title,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: null,
+      )..layout(maxWidth: issue.isNew ? cardInnerWidth - 48 : cardInnerWidth);
+      height += titlePainter.height + 8;
+
+      final bodyPainter = TextPainter(
+        text: TextSpan(
+          text: issue.description,
+          style: const TextStyle(fontSize: 12, height: 1.45),
+        ),
+        textDirection: TextDirection.ltr,
+        maxLines: null,
+      )..layout(maxWidth: cardInnerWidth);
+      height += bodyPainter.height + 10 + 14;
+
+      if (height > maxHeight) maxHeight = height;
+    }
+
+    return maxHeight.ceilToDouble() + 16;
+  }
+
+  Widget _buildCommonIssuesCarousel(BuildContext context) {
+    final carouselHeight = _measureCommonIssuesCarouselHeight(context);
+
+    return Column(
+      children: [
+        SizedBox(
+          height: carouselHeight,
+          child: PageView.builder(
+            controller: _commonIssuesController,
+            itemCount: _commonIssues.length,
+            onPageChanged: (index) => setState(() => _commonIssuePage = index),
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: index == 0 ? 0 : 6,
+                  right: index == _commonIssues.length - 1 ? 0 : 6,
+                ),
+                child: _buildCommonIssueCard(context, _commonIssues[index], index),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(_commonIssues.length, (index) {
+            final active = index == _commonIssuePage;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.symmetric(horizontal: 4),
+              width: active ? 18 : 7,
+              height: 7,
+              decoration: BoxDecoration(
+                color: active ? AppColors.electricBlue : AppTheme.lightCardBorder,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            );
+          }),
+        ),
+      ],
+    );
   }
 
   Widget _buildCommonIssueCard(BuildContext context, _CommonIssue issue, int index) {
     final adaptive = context.adaptive;
-    final expanded = _expandedIssues.contains(index);
 
     return Container(
       decoration: BoxDecoration(
         color: adaptive.cardSurface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: adaptive.subtleBorder),
+        boxShadow: adaptive.cardShadow,
       ),
       clipBehavior: Clip.antiAlias,
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(width: 4, color: AppColors.dangerRed),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 14, 14, 14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppColors.dangerRed.withValues(alpha: 0.12),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.warning_amber_rounded,
-                        color: AppColors.dangerRed,
-                        size: 22,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  issue.title,
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: adaptive.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (issue.isNew) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.successGreen,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Text(
-                                    'NEW',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(width: 4, color: AppColors.dangerRed),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          issue.title,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: adaptive.textPrimary,
                           ),
-                          const SizedBox(height: 8),
-                          GestureDetector(
-                            onTap: () => _toggleIssueExpanded(index),
-                            behavior: HitTestBehavior.opaque,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                AnimatedSize(
-                                  duration: const Duration(milliseconds: 250),
-                                  curve: Curves.easeOut,
-                                  alignment: Alignment.topLeft,
-                                  child: Text(
-                                    issue.description,
-                                    maxLines: expanded ? null : 3,
-                                    overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      height: 1.45,
-                                      color: adaptive.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  expanded ? 'Tap to show less' : 'Tap to read more',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.electricBlue.withValues(alpha: 0.9),
-                                  ),
-                                ),
-                              ],
-                            ),
+                        ),
+                      ),
+                      if (issue.isNew) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.successGreen,
+                            borderRadius: BorderRadius.circular(6),
                           ),
-                          const SizedBox(height: 10),
-                          Text(
-                            issue.date,
+                          child: const Text(
+                            'NEW',
                             style: TextStyle(
-                              fontSize: 11,
-                              color: adaptive.textSecondary.withValues(alpha: 0.8),
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: 0.5,
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    issue.description,
+                    style: TextStyle(
+                      fontSize: 12,
+                      height: 1.45,
+                      color: adaptive.textSecondary,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    issue.date,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: adaptive.textSecondary.withValues(alpha: 0.8),
+                    ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -445,7 +481,6 @@ class _HomeScreenState extends State<HomeScreen> {
     required BuildContext context,
     required String title,
     required String value,
-    required Color indicatorColor,
   }) {
     final adaptive = context.adaptive;
     return GlassContainer(
@@ -453,31 +488,12 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: adaptive.textSecondary,
-                ),
-              ),
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(
-                  color: indicatorColor,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: indicatorColor.withOpacity(0.5),
-                      blurRadius: 4,
-                    )
-                  ],
-                ),
-              ),
-            ],
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 12,
+              color: adaptive.textSecondary,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
