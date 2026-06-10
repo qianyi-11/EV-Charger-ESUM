@@ -12,6 +12,8 @@ class ActivityScreen extends StatefulWidget {
 }
 
 class _ActivityScreenState extends State<ActivityScreen> {
+  AdaptiveTheme get _t => context.adaptive;
+
   final DiagnosticState _state = DiagnosticState();
 
   @override
@@ -57,7 +59,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
   @override
   Widget build(BuildContext context) {
     final adaptive = context.adaptive;
-    final items = List<Map<String, dynamic>>.from(_state.recentActivity.reversed);
+    final items = List<Map<String, dynamic>>.from(_state.recentActivity);
 
     return Scaffold(
       backgroundColor: adaptive.background,
@@ -72,14 +74,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Activity',
+                      'Recent Activity',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Diagnosis history & reports',
+                      'Your latest diagnoses',
                       style: TextStyle(color: adaptive.textSecondary),
                     ),
                   ],
@@ -92,24 +94,24 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           padding: const EdgeInsets.all(24),
                           child: GlassContainer(
                             padding: const EdgeInsets.all(28),
-                            child: const Column(
+                            child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.history, size: 48, color: AppColors.electricBlue),
-                                SizedBox(height: 16),
+                                const Icon(Icons.history, size: 48, color: AppColors.electricBlue),
+                                const SizedBox(height: 16),
                                 Text(
-                                  'No diagnosis history yet',
+                                  'No recent diagnoses yet',
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.white,
+                                    color: _t.textPrimary,
                                   ),
                                 ),
-                                SizedBox(height: 8),
+                                const SizedBox(height: 8),
                                 Text(
-                                  'Complete a diagnosis from the Dashboard to see reports here.',
+                                  'Run a diagnosis from the Dashboard and it will appear here.',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+                                  style: TextStyle(color: _t.textSecondary, height: 1.4),
                                 ),
                               ],
                             ),
@@ -129,7 +131,11 @@ class _ActivityScreenState extends State<ActivityScreen> {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
                             child: GestureDetector(
-                              onTap: () => Navigator.pushNamed(context, '/diagnosis/$code'),
+                              onTap: () => Navigator.pushNamed(
+                                    context,
+                                    '/diagnosis/$code',
+                                    arguments: item,
+                                  ),
                               child: GlassContainer(
                                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                                 child: Row(
@@ -149,10 +155,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
                                         children: [
                                           Text(
                                             description,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontSize: 14,
                                               fontWeight: FontWeight.w600,
-                                              color: Colors.white,
+                                              color: _t.textPrimary,
                                             ),
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,

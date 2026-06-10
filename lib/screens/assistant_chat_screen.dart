@@ -32,12 +32,16 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
   bool _isAiTyping = false;
   bool _showSuggestions = true;
 
-  // Preset detailed Q&A knowledge banks
+  // Preset Q&A aligned with the EVision diagnosis flow
   final Map<String, String> _knowledgeBase = {
-    "What does Error 8 mean?": "Error 8 indicates an RCCB (Residual Current Circuit Breaker) Fault or charging cable leakage. The charger's internal sensors detected current leaking to earth (>30mA), or insulation compromise in the cord, and instantly cut the electrical feed to ensure absolute safety.",
-    "Is this dangerous?": "There is no immediate danger. The EVision AI safety relay reacted in milliseconds to isolate the high-voltage lines. However, you should avoid touching the charging plug contacts or vehicle sockets while moisture checks are pending.",
-    "Can customer continue charging?": "Charging is locked out until the leakage fault is resolved. The system blocks current delivery to secure the vehicle battery and charger casing. Please keep the charging plug securely locked in the side dock for now.",
-    "How to fix this?": "Follow these steps: 1) Disconnect the plug from the car. 2) Inspect the cable sheath and connector pin slots for water, dirt, or cuts. 3) Wipe the connector dry if wet. 4) If clear, toggle the main power isolator switch OFF, wait 30 seconds, then toggle back ON. A technician is already dispatched to run insulation diagnostics if the error persists.",
+    'What does a red blinking light mean?':
+        'A red blinking status light is a fault code. Use Step 3 (Record Blink Pattern) in the diagnosis flow — we count the blinks and match them to faults such as earth loop, E-stop, leakage protection, or controller lock.',
+    'My charger has no power — what should I check?':
+        'Confirm the wall isolator switch is ON. If the status light is completely off, run Start Diagnosis — we guide you to photograph the isolator and EV distribution board (EVDB) to find whether power is cut or a breaker issue exists.',
+    'How do I start a diagnosis?':
+        'From the Dashboard tap Start Diagnosis. Step 1 scans your charger label, Step 2 checks the status light, then we branch into power checks or blink recording depending on what we detect.',
+    'When should I create a support ticket?':
+        'Create a ticket after diagnosis if you need RExharge after-sales help — especially for EVDB/protection issues, persistent faults, or when on-site service is recommended. Your scan results and photos are attached automatically.',
   };
 
   @override
@@ -72,20 +76,12 @@ class _AssistantChatScreenState extends State<AssistantChatScreen> {
     final String trimmedText = text.trim();
     String? matchedKnowledge;
 
-    // Retrieve active scan status from DiagnosticState
-    final state = DiagnosticState();
-    final bool hasScans = state.recentActivity.isNotEmpty;
-    final String? activeErrorCode = hasScans ? state.recentActivity.first['code'] : null;
-
-    // Only allow static local preset bypass if scan history exists and active error code is exactly blink-8
-    if (hasScans && activeErrorCode == 'blink-8') {
-      for (final entry in _knowledgeBase.entries) {
-        final keyClean = entry.key.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
-        final textClean = trimmedText.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
-        if (keyClean == textClean) {
-          matchedKnowledge = entry.value;
-          break;
-        }
+    for (final entry in _knowledgeBase.entries) {
+      final keyClean = entry.key.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
+      final textClean = trimmedText.toLowerCase().replaceAll(RegExp(r'[^\w\s]'), '');
+      if (keyClean == textClean) {
+        matchedKnowledge = entry.value;
+        break;
       }
     }
 

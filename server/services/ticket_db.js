@@ -12,9 +12,17 @@ function defaultStore() {
   return {
     users: [],
     tickets: [],
+    ticketMessages: [],
     resetCodes: [],
-    counters: { userId: 0, ticketId: 0, ticketNumber: 1000, resetCodeId: 0 },
+    counters: { userId: 0, ticketId: 0, ticketNumber: 1000, resetCodeId: 0, messageId: 0 },
   };
+}
+
+function ensureStoreShape(store) {
+  if (!Array.isArray(store.ticketMessages)) store.ticketMessages = [];
+  store.counters ??= {};
+  if (store.counters.messageId == null) store.counters.messageId = 0;
+  return store;
 }
 
 function loadStore() {
@@ -24,7 +32,7 @@ function loadStore() {
     return store;
   }
   try {
-    return JSON.parse(fs.readFileSync(storePath, 'utf8'));
+    return ensureStoreShape(JSON.parse(fs.readFileSync(storePath, 'utf8')));
   } catch {
     const store = defaultStore();
     saveStore(store);
@@ -52,6 +60,25 @@ export function resolveIssueType(faultyComponent, describeIssue, details) {
   return faultyComponent || 'Other';
 }
 
+function rowToMessage(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    ticketId: String(row.ticket_id),
+    direction: row.direction,
+    body: row.body,
+    senderName: row.sender_name,
+    senderEmail: row.sender_email,
+    attachmentUrl: row.attachment_filename
+      ? `/api/tickets/uploads/${row.attachment_filename}`
+      : null,
+    attachmentType: row.attachment_type || null,
+    viaEmail: Boolean(row.via_email),
+    emailSent: Boolean(row.email_sent),
+    createdAt: row.created_at,
+  };
+}
+
 function rowToTicket(row) {
   if (!row) return null;
   return {
@@ -76,6 +103,15 @@ function rowToTicket(row) {
     issueType: row.issue_type,
     details: row.details,
     sourceErrorCode: row.source_error_code,
+    eboxScreenshotUrl: row.ebox_screenshot
+      ? `/api/tickets/uploads/${row.ebox_screenshot}`
+      : null,
+    isolatorPhotoUrl: row.isolator_photo
+      ? `/api/tickets/uploads/${row.isolator_photo}`
+      : null,
+    evdbPhotoUrl: row.evdb_photo
+      ? `/api/tickets/uploads/${row.evdb_photo}`
+      : null,
     status: row.status,
     assignedEngineer: row.assigned_engineer,
     createdAt: row.created_at,
@@ -117,15 +153,121 @@ export function getNextTicketNumber(store) {
   return store.counters.ticketNumber;
 }
 
+function appendEboxToDetails(details, hasScreenshot) {
+  let text = (details ?? '').trim();
+  if (!hasScreenshot) return text;
+  const note = '[e.Box app screenshot attached — see Details below]';
+  if (text.includes(note)) return text;
+  return text ? `${text}\n\n${note}` : note;
+}
+
+export function addTicketMessage(store, {
+  ticketId,
+  direction,
+  body,
+  senderName,
+  senderEmail,
+  attachmentFilename = null,
+  attachmentType = null,
+  viaEmail = false,
+  emailSent = false,
+}) {
+  ensureStoreShape(store);
+  store.counters.messageId += 1;
+  const now = new Date().toISOString();
+  const row = {
+    id: store.counters.messageId,
+    ticket_id: Number(ticketId),
+    direction,
+    body: (body ?? '').trim(),
+    sender_name: senderName ?? '',
+    sender_email: senderEmail ?? '',
+    attachment_filename: attachmentFilename,
+    attachment_type: attachmentType,
+    via_email: viaEmail ? 1 : 0,
+    email_sent: emailSent ? 1 : 0,
+    created_at: now,
+  };
+  store.ticketMessages.push(row);
+
+  const ticket = store.tickets.find((t) => t.id === Number(ticketId));
+  if (ticket) ticket.updated_at = now;
+
+  return rowToMessage(row);
+}
+
+export function listTicketMessages(ticketId) {
+  const store = ensureStoreShape(loadStore());
+  return store.ticketMessages
+    .filter((m) => m.ticket_id === Number(ticketId))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .map(rowToMessage);
+}
+
+export function createAdminTicketMessage(ticketId, { body, senderName, emailSent = true }) {
+  return withStore((store) => {
+    const ticketRow = store.tickets.find((t) => t.id === Number(ticketId));
+    if (!ticketRow) return null;
+    return addTicketMessage(store, {
+      ticketId,
+      direction: 'admin',
+      body,
+      senderName: senderName || 'EVision Support',
+      emailSent,
+    });
+  });
+}
+
+export function findTicketByNumber(ticketNumber) {
+  const store = loadStore();
+  const row = store.tickets.find((t) => t.ticket_number === Number(ticketNumber));
+  return rowToTicket(row);
+}
+
+export function recordInboundCustomerEmail({
+  ticketInternalId,
+  ticketNumber,
+  fromEmail,
+  body,
+  senderName,
+}) {
+  return withStore((store) => {
+    let ticketRow = null;
+    if (ticketInternalId) {
+      ticketRow = store.tickets.find((t) => t.id === Number(ticketInternalId));
+    } else if (ticketNumber) {
+      ticketRow = store.tickets.find((t) => t.ticket_number === Number(ticketNumber));
+    }
+    if (!ticketRow) return null;
+
+    if (fromEmail && ticketRow.user_email.toLowerCase() !== fromEmail.trim().toLowerCase()) {
+      const err = new Error('Sender email does not match the ticket owner.');
+      err.code = 'EMAIL_MISMATCH';
+      throw err;
+    }
+
+    return addTicketMessage(store, {
+      ticketId: ticketRow.id,
+      direction: 'customer',
+      body,
+      senderName: senderName || ticketRow.full_name,
+      senderEmail: fromEmail || ticketRow.user_email,
+      viaEmail: true,
+    });
+  });
+}
+
 export function createTicket(user, payload) {
   return withStore((store) => {
     const ticketNumber = getNextTicketNumber(store);
     store.counters.ticketId += 1;
     const now = new Date().toISOString();
+    const hasScreenshot = Boolean(payload.eboxScreenshotFilename);
+    const mergedDetails = appendEboxToDetails(payload.details, hasScreenshot);
     const issueType = resolveIssueType(
       payload.faultyComponent,
       payload.describeIssue,
-      payload.details,
+      mergedDetails,
     );
 
     const row = {
@@ -147,8 +289,11 @@ export function createTicket(user, payload) {
       faulty_component: payload.faultyComponent ?? '',
       describe_issue: payload.describeIssue ?? null,
       issue_type: issueType,
-      details: payload.details ?? '',
+      details: mergedDetails,
       source_error_code: payload.sourceErrorCode ?? null,
+      ebox_screenshot: payload.eboxScreenshotFilename ?? null,
+      isolator_photo: payload.isolatorPhotoFilename || null,
+      evdb_photo: payload.evdbPhotoFilename || null,
       status: 'open',
       assigned_engineer: null,
       created_at: now,
@@ -156,6 +301,7 @@ export function createTicket(user, payload) {
     };
 
     store.tickets.push(row);
+
     return rowToTicket(row);
   });
 }

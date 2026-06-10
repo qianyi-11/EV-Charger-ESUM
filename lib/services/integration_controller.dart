@@ -5,6 +5,7 @@ import 'report_generator.dart';
 import 'offline_manager.dart';
 import 'server_connectivity_service.dart'; // ← add this import
 import '../models/diagnostic_state.dart';
+import '../models/diagnosis_report_data.dart';
 
 class IntegrationController {
   OcrHandler? _ocrHandler;
@@ -103,29 +104,27 @@ class IntegrationController {
     );
 
     if (decision.directive == ActionDirective.routeToAfterSales) {
-      final reportData = DiagnosticReport(
-        timestamp: DateTime.now().toIso8601String(),
-        serialNumber: _ocrCache?.serialNumber ?? 'Unknown S/N',
-        modelName: _ocrCache?.modelName ?? 'Unknown Model',
-        faultType: decision.faultType.toString(),
-        actionDirective: decision.actionDescription,
-        confidenceScore: 0.95,
-        screenshot: evidenceImage,
+      final diagnosticState = DiagnosticState();
+      final report = DiagnosisReportData.fromDiagnosticState(
+        diagnosticState,
+        errorCode: decision.errorCode,
       );
 
-      final pdfFile = await _reportGenerator.generateDiagnosticPdf(reportData);
+      if (report != null) {
+        final pdfFile = await _reportGenerator.saveDiagnosisPdf(report);
 
-      await _offlineManager.queueReport(
-        timestamp: reportData.timestamp,
-        serialNumber: reportData.serialNumber,
-        modelName: reportData.modelName,
-        faultType: reportData.faultType,
-        actionDirective: reportData.actionDirective,
-        confidenceScore: reportData.confidenceScore,
-        pdfPath: pdfFile.path,
-      );
+        await _offlineManager.queueReport(
+          timestamp: report.generatedAt.toIso8601String(),
+          serialNumber: report.serialNumber,
+          modelName: report.model,
+          faultType: report.faultType,
+          actionDirective: report.recommendedActions.join(' '),
+          confidenceScore: report.confidencePercent / 100.0,
+          pdfPath: pdfFile.path,
+        );
 
-      await _offlineManager.syncPendingReports();
+        await _offlineManager.syncPendingReports();
+      }
     }
 
     return decision;

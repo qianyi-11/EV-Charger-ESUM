@@ -15,6 +15,12 @@ import { analyzeBlinkingVideo } from './services/blinking_detector.js';
 import authRoutes from './routes/auth.js';
 import ticketRoutes from './routes/tickets.js';
 import { ensureDefaultAdmin } from './services/auth_service.js';
+import { parseTicketReference } from './services/email_service.js';
+import {
+  recordInboundCustomerEmail,
+  findTicketByNumber,
+  getTicketById,
+} from './services/ticket_db.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -29,6 +35,56 @@ app.use(express.json());
 
 // Shared ticket + auth API (JWT, role: user | admin)
 app.use('/api/auth', authRoutes);
+
+/**
+ * Inbound email webhook — connect your email provider (SendGrid, Mailgun, etc.)
+ * or POST manually in dev when a customer replies by email.
+ *
+ * Body: { secret?, from, subject, text|body, to?, name? }
+ */
+app.post('/api/webhooks/inbound-email', async (req, res) => {
+  try {
+    const configuredSecret = process.env.INBOUND_EMAIL_SECRET;
+    if (configuredSecret && req.body?.secret !== configuredSecret) {
+      return res.status(401).json({ error: 'Invalid webhook secret.' });
+    }
+
+    const from = (req.body?.from ?? '').trim();
+    const subject = req.body?.subject ?? '';
+    const text = (req.body?.text ?? req.body?.body ?? '').trim();
+    if (!from || !text) {
+      return res.status(400).json({ error: 'from and text/body are required.' });
+    }
+
+    const ref = parseTicketReference({ subject, to: req.body?.to });
+    if (!ref) {
+      return res.status(400).json({ error: 'Could not identify ticket from subject or to address.' });
+    }
+
+    let ticket = null;
+    if (ref.internalId) {
+      ticket = getTicketById(ref.internalId);
+    } else if (ref.ticketNumber) {
+      ticket = findTicketByNumber(ref.ticketNumber);
+    }
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found.' });
+    }
+
+    const message = recordInboundCustomerEmail({
+      ticketInternalId: ticket.id,
+      fromEmail: from,
+      body: text,
+      senderName: req.body?.name,
+    });
+
+    res.json({ ok: true, message });
+  } catch (error) {
+    const status = error.code === 'EMAIL_MISMATCH' ? 403 : 500;
+    res.status(status).json({ error: error.message || 'Failed to record inbound email.' });
+  }
+});
+
 app.use('/api/tickets', ticketRoutes);
 
 // Admin dashboard (browser) — http://localhost:5000/admin

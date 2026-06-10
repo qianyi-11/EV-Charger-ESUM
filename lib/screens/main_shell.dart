@@ -7,6 +7,7 @@ import 'assistant_chat_screen.dart';
 import 'activity_screen.dart';
 import 'settings_screen.dart';
 import '../services/ticket_service.dart';
+import '../widgets/gemini_nav_icon.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -77,8 +78,8 @@ class _MainShellState extends State<MainShell> {
             label: '',
           ),
           NavigationDestination(
-            icon: Icon(Icons.smart_toy_outlined, color: adaptive.textSecondary),
-            selectedIcon: const Icon(Icons.smart_toy, color: AppColors.electricBlue),
+            icon: GeminiNavIcon(selected: false, unselectedColor: adaptive.textSecondary),
+            selectedIcon: const GeminiNavIcon(selected: true),
             label: '',
           ),
           NavigationDestination(

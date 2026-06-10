@@ -20,6 +20,8 @@ class ChargerDetectionScreen extends StatefulWidget {
 }
 
 class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with TickerProviderStateMixin {
+  AdaptiveTheme get _t => context.adaptive;
+
   DetectionPhase _phase = DetectionPhase.scanning;
   final DiagnosticState _state = DiagnosticState();
   
@@ -231,22 +233,15 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
     Navigator.pushReplacementNamed(context, "/isolator-detection");
   }
 
-  void _changeSimulatedBranch(int branchId) {
-    setState(() {
-      _state.setBranch(branchId.toString());
-      // Restart sequence to let the user see the animation of the selected branch
-      _runDetectionSequence();
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: _t.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("Charger & LED Scanning"),
+        title: Text("Step 2: Check Status Light", style: TextStyle(color: _t.textPrimary)),
+        iconTheme: IconThemeData(color: _t.textPrimary),
       ),
       body: SafeArea(
         child: Padding(
@@ -254,53 +249,21 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Interactive Branch Selection Header
               Container(
                 margin: const EdgeInsets.only(top: 8, bottom: 16),
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.03),
+                  color: _t.emptyFill,
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppColors.glassBorder),
+                  border: Border.all(color: _t.glassBorder),
                 ),
-                child: Column(
-                  children: [
-                    const Text(
-                      "Simulation Target Route:",
-                      style: TextStyle(fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildBranchSelectButton(
-                            label: "Branch 1: No Light (5s timeout)",
-                            branchId: 1,
-                            isSelected: _state.selectedBranch == 1,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: _buildBranchSelectButton(
-                            label: "Branch 2: Red Light",
-                            branchId: 2,
-                            isSelected: _state.selectedBranch == 2,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: _buildBranchSelectButton(
-                            label: "Branch 2: Flicker",
-                            branchId: 3,
-                            isSelected: _state.selectedBranch == 3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: const Text(
+                  "Point your camera at the charger front panel. "
+                  "We will look for the status light and guide you to the next step.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textSecondary, height: 1.45, fontSize: 13),
                 ),
               ),
-
               // Main Camera Feed HUD Viewfinder
               Expanded(
                 flex: 4,
@@ -341,40 +304,6 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
               ),
               const SizedBox(height: 12),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBranchSelectButton({
-    required String label,
-    required int branchId,
-    required bool isSelected,
-  }) {
-    final Color color = branchId == 1 ? AppColors.warningOrange : AppColors.dangerRed;
-    return GestureDetector(
-      onTap: () => _changeSimulatedBranch(branchId),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-          decoration: BoxDecoration(
-            color: isSelected ? color.withOpacity(0.18) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected ? color : AppColors.glassBorder,
-              width: isSelected ? 1.5 : 1.0,
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: isSelected ? Colors.white : AppColors.textSecondary,
-              fontSize: 10,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            ),
           ),
         ),
       ),
@@ -529,15 +458,15 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
   }
 
   Widget _buildStatusTelemetryPanel() {
-    String textGuidance = "Align the charger device inside the scanner overlay.";
+    String textGuidance = "Keep the whole charger in view inside the frame.";
     if (_phase == DetectionPhase.chargerFound) {
-      textGuidance = "Charger body recognized! Hold your position steady.";
+      textGuidance = "Charger found. Hold still while we check the status light.";
     } else if (_phase == DetectionPhase.searchingLight) {
-      textGuidance = "Detecting high-frequency red/green color pixels on the panel...";
+      textGuidance = "Looking for the indicator light on the charger panel...";
     } else if (_phase == DetectionPhase.branch1NoLight) {
-      textGuidance = "Zero emission from indicators. Power source fault inferred.";
+      textGuidance = "No status light detected. We will check the power supply next.";
     } else if (_phase == DetectionPhase.branch2RedLight) {
-      textGuidance = "Red flash sequence detected. Prepping blink recorder...";
+      textGuidance = "Red light detected. Next we will record the blink pattern.";
     }
 
     return Column(
@@ -552,9 +481,9 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    "Real-time Detection",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                  Text(
+                    "What we're checking",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: _t.textPrimary),
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -601,9 +530,9 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.03),
+            color: _t.emptyFill,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.glassBorder),
+            border: Border.all(color: _t.glassBorder),
           ),
           child: Row(
             children: [
@@ -624,7 +553,7 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
               Expanded(
                 child: Text(
                   textGuidance,
-                  style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  style: TextStyle(fontSize: 13, color: _t.textSecondary),
                 ),
               ),
             ],
@@ -641,14 +570,14 @@ class _ChargerDetectionScreenState extends State<ChargerDetectionScreen> with Ti
     required bool isLoading,
   }) {
     Widget iconWidget;
-    Color color = AppColors.textSecondary;
+    Color color = _t.textSecondary;
 
     if (isCompleted) {
       iconWidget = const Icon(Icons.check_circle, color: AppColors.successGreen, size: 20);
-      color = Colors.white;
+      color = _t.textPrimary;
     } else if (isFailed) {
       iconWidget = const Icon(Icons.warning, color: AppColors.warningOrange, size: 20);
-      color = Colors.white;
+      color = _t.textPrimary;
     } else if (isLoading) {
       iconWidget = const SizedBox(
         width: 16,

@@ -89,6 +89,71 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
         prefill.details!.isNotEmpty) {
       _detailsController.text = prefill.details!;
     }
+
+    _applyChargerBrandFromDiagnosis(state);
+  }
+
+  void _applyChargerBrandFromDiagnosis(DiagnosticState state) {
+    if (_chargerBrand != null) return;
+
+    var brand = state.brand.trim();
+    var model = state.chargerModel.trim();
+    if (brand.toLowerCase() == 'unknown') brand = '';
+    if (model.toLowerCase() == 'unknown charger' || model.toLowerCase() == 'unknown') {
+      model = '';
+    }
+    if (brand.isEmpty && model.isEmpty) return;
+
+    final haystack = '$brand $model'.toLowerCase();
+
+    String? matched;
+    for (final option in _chargerBrands) {
+      final key = option.toLowerCase();
+      if (haystack.contains(key) || brand.toLowerCase().contains(key)) {
+        matched = option;
+        break;
+      }
+    }
+
+    if (matched == null) {
+      if (haystack.contains('rexharge') || haystack.contains('revo')) {
+        matched = 'RExharge REVO';
+      } else if (brand.toLowerCase().contains('proton')) {
+        matched = 'Proton';
+      } else if (haystack.contains('joycharge')) {
+        matched = 'Joycharge';
+      } else if (haystack.contains('pingalax')) {
+        matched = 'Pingalax';
+      } else if (haystack.contains('starcharge') && haystack.contains('aurora')) {
+        matched = 'Starcharge Aurora';
+      } else if (haystack.contains('starcharge')) {
+        matched = 'Starcharge Artemis';
+      }
+    }
+
+    if (matched != null) {
+      _chargerBrand = matched;
+      if (model.isNotEmpty && !model.toLowerCase().contains(matched.toLowerCase())) {
+        _chargerOtherController.text = model;
+      }
+      return;
+    }
+
+    _chargerBrand = 'Others';
+    _chargerOtherController.text = [brand, model]
+        .where((part) => part.isNotEmpty)
+        .join(' ')
+        .trim();
+  }
+
+  String? get _chargerBrandOtherForSubmit {
+    if (_chargerBrand == 'Others') {
+      return _chargerOtherController.text.trim().isEmpty
+          ? null
+          : _chargerOtherController.text.trim();
+    }
+    final other = _chargerOtherController.text.trim();
+    return other.isEmpty ? null : other;
   }
 
   @override
@@ -291,6 +356,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
     }
     setState(() => _submitting = true);
 
+    try {
     final ticket = SupportTicket(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       createdAt: DateTime.now(),
@@ -302,7 +368,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
       carBrandOther: _carBrand == 'Others' ? _carOtherController.text.trim() : null,
       installedWithRexharge: _installedWithRexharge!,
       chargerBrand: _chargerBrand!,
-      chargerBrandOther: _chargerBrand == 'Others' ? _chargerOtherController.text.trim() : null,
+      chargerBrandOther: _chargerBrandOtherForSubmit,
       chargerSerialNumber: _serialController.text.trim(),
       installationDate: _installationDate,
       faultyComponent: _faultyComponent!,
@@ -311,16 +377,40 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
       sourceErrorCode: widget.prefill?.sourceErrorCode,
     );
 
-    await TicketService.instance.addTicket(ticket);
+    final diagnosticState = DiagnosticState();
+    File? isolatorPhoto;
+    File? evdbPhoto;
+    if (diagnosticState.isolatorPhotoPath != null) {
+      final file = File(diagnosticState.isolatorPhotoPath!);
+      if (await file.exists()) isolatorPhoto = file;
+    }
+    if (diagnosticState.evdbPhotoPath != null) {
+      final file = File(diagnosticState.evdbPhotoPath!);
+      if (await file.exists()) evdbPhoto = file;
+    }
+
+    await TicketService.instance.addTicket(
+      ticket,
+      eboxScreenshot: _eboxScreenshot,
+      isolatorPhoto: isolatorPhoto,
+      evdbPhoto: evdbPhoto,
+      isolatorPhotoFilename: diagnosticState.isolatorPhotoServerFilename,
+      evdbPhotoFilename: diagnosticState.evdbPhotoServerFilename,
+    );
     await TicketService.instance.load();
 
     if (!mounted) return;
-    setState(() => _submitting = false);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Ticket submitted successfully.')),
     );
     Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      _showError(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   void _showError(String message) {
@@ -538,7 +628,7 @@ class _NewTicketScreenState extends State<NewTicketScreen> {
                 file: _eboxScreenshot,
                 onTap: _pickEboxScreenshot,
                 onClear: () => setState(() => _eboxScreenshot = null),
-                emptyLabel: 'Tap to upload e.Box app screenshot (optional)',
+                emptyLabel: 'Tap to attach e.Box app screenshot (saved with your ticket)',
                 optional: true,
               ),
             ],

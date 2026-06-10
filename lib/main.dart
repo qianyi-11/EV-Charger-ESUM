@@ -77,7 +77,15 @@ class _RexhargeAppState extends State<RexhargeApp> {
         '/isolator-detection': (context) => const IsolatorDetectionScreen(),
         '/evdb-detection': (context) => const EvdbDetectionScreen(),
         '/video-recording': (context) => const VideoRecordingScreen(),
-        '/report': (context) => const ReportPreviewScreen(),
+        '/report': (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          return ReportPreviewScreen(
+            errorCode: args is Map ? args['errorCode'] as String? : null,
+            activityRecord: args is Map && args['activityRecord'] is Map<String, dynamic>
+                ? args['activityRecord'] as Map<String, dynamic>
+                : null,
+          );
+        },
         '/assistant': (context) => const AssistantChatScreen(),
         '/new-ticket': (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
@@ -87,8 +95,14 @@ class _RexhargeAppState extends State<RexhargeApp> {
       onGenerateRoute: (settings) {
         if (settings.name != null && settings.name!.startsWith('/diagnosis/')) {
           final errorCode = settings.name!.replaceFirst('/diagnosis/', '');
+          final activityRecord = settings.arguments is Map<String, dynamic>
+              ? settings.arguments as Map<String, dynamic>
+              : null;
           return MaterialPageRoute(
-            builder: (context) => DiagnosisResultScreen(errorCode: errorCode),
+            builder: (context) => DiagnosisResultScreen(
+              errorCode: errorCode,
+              activityRecord: activityRecord,
+            ),
           );
         }
         return null;

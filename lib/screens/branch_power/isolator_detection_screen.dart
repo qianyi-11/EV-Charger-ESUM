@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -8,6 +9,8 @@ import '../../services/ml_model_service.dart';
 import '../../services/camera_session_manager.dart';
 import '../../services/sharp_capture.dart';
 import '../../services/gallery_image_picker.dart';
+import '../../services/diagnosis_photo_store.dart';
+import '../../services/diagnosis_photo_service.dart';
 
 enum IsolatorPhase { scanning, analyzing, resultOff, resultOn }
 
@@ -99,6 +102,20 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
     }
   }
 
+  Future<void> _saveIsolatorPhoto(XFile photo) async {
+    try {
+      final persisted = await DiagnosisPhotoStore.persistCapture(photo, 'isolator');
+      _state.setIsolatorPhotoPath(persisted);
+      final serverFilename =
+          await DiagnosisPhotoService.uploadToServer(File(persisted), kind: 'isolator');
+      if (serverFilename != null) {
+        _state.setIsolatorPhotoServerFilename(serverFilename);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[IsolatorDetect] photo save/upload: $e');
+    }
+  }
+
   Future<void> _processImage(XFile photo) async {
     setState(() {
       _step1Done = false;
@@ -132,6 +149,8 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
         );
         return;
       }
+
+      await _saveIsolatorPhoto(photo);
 
       setState(() => _step1Done = result.isolatorDetected);
 
@@ -194,12 +213,11 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
       builder: (context) => AlertDialog(
         backgroundColor: AppColors.background,
         title: const Text("Isolator Switch Example", style: TextStyle(color: Colors.white)),
-        content: Container(
-          width: double.maxFinite,
-          height: 200,
-          color: Colors.white10,
-          child: const Center(
-            child: Icon(Icons.power, color: AppColors.electricBlue, size: 80),
+        content: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.asset(
+            'assets/images/isolator_example.png',
+            fit: BoxFit.contain,
           ),
         ),
         actions: [
@@ -272,7 +290,7 @@ class _IsolatorDetectionScreenState extends State<IsolatorDetectionScreen> {
                     const SizedBox(width: 12),
                     const Expanded(
                       child: Text(
-                        "Point your camera at the isolator switch, or upload a photo from your gallery.",
+                        "Step 3: Point your camera at the isolator switch beside the charger, or upload a photo from your gallery.",
                         style: TextStyle(color: Colors.white, fontSize: 14),
                       ),
                     ),

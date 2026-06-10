@@ -52,6 +52,10 @@ class DiagnosticState {
   String selectedBranch = '';
   bool   isIsolatorOn   = false;
   bool   isEvdbOk       = false;
+  String? isolatorPhotoPath;
+  String? evdbPhotoPath;
+  String? isolatorPhotoServerFilename;
+  String? evdbPhotoServerFilename;
   int    blinksCounted  = 0;
   String targetErrorCode = '';
 
@@ -93,6 +97,11 @@ class DiagnosticState {
   
   // ---------- Missing Methods ----------
   
+  static int blinkCountFromCode(String code) {
+    final match = RegExp(r'^blink-(\d+)').firstMatch(FaultCatalog.normalizeErrorCode(code));
+    return match != null ? int.parse(match.group(1)!) : 0;
+  }
+
   /// Add a diagnostic record to recent activity
   void addDiagnosticRecord(String errorCode) {
     final normalized = FaultCatalog.normalizeErrorCode(errorCode);
@@ -104,13 +113,36 @@ class DiagnosticState {
             ? 'warning'
             : 'info';
 
+    final bool liveMatch =
+        detectedFaults.isNotEmpty && FaultCatalog.normalizeErrorCode(targetErrorCode) == normalized;
+    final recordBlinkCount = liveMatch ? blinksCounted : blinkCountFromCode(normalized);
+    final recordFindings = liveMatch ? List<String>.from(scanFindings) : const <String>[];
+    final recordFaults = liveMatch
+        ? List<DetectedFault>.from(detectedFaults)
+        : FaultCatalog.forErrorCode(
+            normalized,
+            scanFindings: recordFindings,
+            blinkCount: recordBlinkCount,
+          );
+    final recordConfidence = liveMatch
+        ? scanConfidence
+        : normalizeDisplayConfidence(info?.confidence ?? displayConfidenceDefault);
+
     recentActivity.insert(0, {
       'timestamp': DateTime.now().toIso8601String(),
       'errorCode': errorCode,
       'code': normalized,
       'description': info?.name ?? normalized,
       'status': status,
+      'confidence': recordConfidence,
+      'blinkCount': recordBlinkCount,
+      'scanFindings': recordFindings,
+      'faults': recordFaults.map((f) => f.toMap()).toList(),
     });
+    if (recentActivity.length > 30) {
+      recentActivity.removeRange(30, recentActivity.length);
+    }
+    UserPrefsService.saveRecentActivity(recentActivity);
     _notifyListeners();
   }
   
@@ -121,6 +153,16 @@ class DiagnosticState {
   }
   
   /// Set power branch outcomes (isolator and EVDB status)
+  void setIsolatorPhotoPath(String path) => isolatorPhotoPath = path;
+
+  void setEvdbPhotoPath(String path) => evdbPhotoPath = path;
+
+  void setIsolatorPhotoServerFilename(String filename) =>
+      isolatorPhotoServerFilename = filename;
+
+  void setEvdbPhotoServerFilename(String filename) =>
+      evdbPhotoServerFilename = filename;
+
   void setPowerBranchOutcomes({required bool isolatorOn, required bool evdbOk}) {
     isIsolatorOn = isolatorOn;
     isEvdbOk = evdbOk;
@@ -224,14 +266,59 @@ class DiagnosticState {
   }
 
   List<DetectedFault> resolvedFaults(String errorCode) {
-    if (detectedFaults.isNotEmpty) {
+    final normalized = FaultCatalog.normalizeErrorCode(errorCode);
+    final normalizedTarget = FaultCatalog.normalizeErrorCode(targetErrorCode);
+    if (detectedFaults.isNotEmpty && normalizedTarget == normalized) {
       return detectedFaults;
     }
     return FaultCatalog.forErrorCode(
       errorCode,
-      scanFindings: scanFindings,
-      blinkCount: blinksCounted,
+      scanFindings: normalizedTarget == normalized ? scanFindings : const [],
+      blinkCount: normalizedTarget == normalized ? blinksCounted : blinkCountFromCode(normalized),
     );
+  }
+
+  /// Rebuild fault details from a saved recent-activity entry.
+  List<DetectedFault> faultsFromActivityRecord(Map<String, dynamic> record) {
+    final rawFaults = record['faults'];
+    if (rawFaults is List && rawFaults.isNotEmpty) {
+      return rawFaults
+          .whereType<Map>()
+          .map((f) => DetectedFault.fromMap(Map<String, dynamic>.from(f)))
+          .where((f) => f.faultType.isNotEmpty)
+          .toList();
+    }
+
+    final code = (record['code'] ?? record['errorCode'] ?? '').toString();
+    final findings = record['scanFindings'] is List
+        ? record['scanFindings'].map((e) => e.toString()).toList()
+        : const <String>[];
+    final blinkCount = record['blinkCount'] is int
+        ? record['blinkCount'] as int
+        : blinkCountFromCode(code);
+
+    return FaultCatalog.forErrorCode(
+      code,
+      scanFindings: findings,
+      blinkCount: blinkCount,
+    );
+  }
+
+  double confidenceFromActivityRecord(Map<String, dynamic> record) {
+    final raw = record['confidence'];
+    if (raw is num && raw > 0) {
+      return normalizeDisplayConfidence(raw.toDouble());
+    }
+    final code = (record['code'] ?? record['errorCode'] ?? '').toString();
+    final info = database[FaultCatalog.normalizeErrorCode(code)] ?? database[code];
+    return normalizeDisplayConfidence(info?.confidence ?? displayConfidenceDefault);
+  }
+
+  List<String> scanFindingsFromActivityRecord(Map<String, dynamic> record) {
+    if (record['scanFindings'] is List) {
+      return record['scanFindings'].map((e) => e.toString()).toList();
+    }
+    return const [];
   }
 
   void clearScanFindings() {
@@ -264,6 +351,7 @@ class DiagnosticState {
   Future<void> loadUserProfile() async {
     username = await UserPrefsService.loadUsername();
     darkTheme = await UserPrefsService.loadDarkTheme(defaultValue: darkTheme);
+    recentActivity = await UserPrefsService.loadRecentActivity();
     _notifyListeners();
   }
 
@@ -305,9 +393,14 @@ class DiagnosticState {
     scanFindings = [];
     scanConfidence = 0.0;
     recentActivity = [];
+    UserPrefsService.saveRecentActivity([]);
     savedReportId = null;
     targetErrorCode = '';
     blinksCounted = 0;
+    isolatorPhotoPath = null;
+    evdbPhotoPath = null;
+    isolatorPhotoServerFilename = null;
+    evdbPhotoServerFilename = null;
     _notifyListeners();
   }
 

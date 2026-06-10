@@ -412,9 +412,9 @@ class _VideoRecordingScreenState extends State<VideoRecordingScreen> with Single
                 child: Text(
                   _phase == RecordingPhase.preparing
                       ? (_cameraReady
-                          ? 'Point the camera at the charger indicator light, then tap Start Recording.'
+                          ? 'Step 3: Point at the red status light, then tap Start Recording for 15 seconds.'
                           : 'Preparing camera...')
-                      : 'Center the blinking light inside the box and hold still.',
+                      : 'Keep the blinking red light inside the box and hold your phone steady.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                 ),

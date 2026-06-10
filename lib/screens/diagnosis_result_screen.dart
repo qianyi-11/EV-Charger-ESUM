@@ -8,8 +8,13 @@ import 'new_ticket_screen.dart';
 
 class DiagnosisResultScreen extends StatefulWidget {
   final String errorCode;
+  final Map<String, dynamic>? activityRecord;
 
-  const DiagnosisResultScreen({super.key, required this.errorCode});
+  const DiagnosisResultScreen({
+    super.key,
+    required this.errorCode,
+    this.activityRecord,
+  });
 
   @override
   State<DiagnosisResultScreen> createState() => _DiagnosisResultScreenState();
@@ -21,20 +26,30 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
   double _animatedConfidence = 0.0;
   late final AnimationController _confidenceController;
 
-  static const Color _pageBackground = Color(0xFF050A18);
   static const Color _accentCyan = Color(0xFF00D1FF);
-  static const Color _mutedText = Color(0xFF94A3B8);
-  static const Color _sectionDivider = Color(0xFF1A2238);
-  static const Color _cardSurface = Color(0xFF0C1224);
+
+  AdaptiveTheme get _t => context.adaptive;
+
+  bool get _isHistoricalView => widget.activityRecord != null;
+
+  List<DetectedFault> get _resolvedFaults => _isHistoricalView
+      ? _globalState.faultsFromActivityRecord(widget.activityRecord!)
+      : _globalState.resolvedFaults(widget.errorCode);
+
+  List<String> get _resolvedScanFindings => _isHistoricalView
+      ? _globalState.scanFindingsFromActivityRecord(widget.activityRecord!)
+      : _globalState.scanFindings;
 
   @override
   void initState() {
     super.initState();
 
-    final faults = _globalState.resolvedFaults(widget.errorCode);
-    final rawConfidence = _globalState.scanConfidence > 0
-        ? _globalState.scanConfidence
-        : _defaultConfidenceForFaults(faults);
+    final faults = _resolvedFaults;
+    final rawConfidence = _isHistoricalView
+        ? _globalState.confidenceFromActivityRecord(widget.activityRecord!)
+        : (_globalState.scanConfidence > 0
+            ? _globalState.scanConfidence
+            : _defaultConfidenceForFaults(faults));
     final displayConfidence = DiagnosticState.normalizeDisplayConfidence(rawConfidence);
 
     _confidenceController = AnimationController(
@@ -65,7 +80,7 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     return info?.confidence ?? DiagnosticState.displayConfidenceDefault;
   }
 
-  List<DetectedFault> get _faults => _globalState.resolvedFaults(widget.errorCode);
+  List<DetectedFault> get _faults => _resolvedFaults;
 
   int get _confidencePercent => (_animatedConfidence * 100).round();
 
@@ -79,7 +94,7 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     final state = DiagnosticState();
     final prefill = TicketPrefill.fromDiagnosis(
       widget.errorCode,
-      scanFindings: state.scanFindings,
+      scanFindings: _resolvedScanFindings,
     );
     Navigator.push(
       context,
@@ -130,15 +145,15 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     final primaryFault = faults.isNotEmpty ? faults.first : null;
 
     return Scaffold(
-      backgroundColor: _pageBackground,
+      backgroundColor: _t.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text(
+        iconTheme: IconThemeData(color: _t.textPrimary),
+        title: Text(
           'Result',
           style: TextStyle(
-            color: Colors.white,
+            color: _t.textPrimary,
             fontWeight: FontWeight.bold,
             fontSize: 18,
           ),
@@ -155,47 +170,58 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
               else ...[
                 _buildHeaderSection(primaryFault),
                 const SizedBox(height: 20),
+                _buildChargerSpecSection(),
+                const SizedBox(height: 20),
                 _buildConfidenceCard(),
                 const SizedBox(height: 24),
                 _buildDiagnosticExplanationSection(faults),
                 const SizedBox(height: 24),
                 _buildRecommendedActionsSection(faults),
               ],
-              const SizedBox(height: 28),
-              ElevatedButton.icon(
-                onPressed: _createTicket,
-                icon: const Icon(Icons.confirmation_number_outlined, color: Colors.black),
-                label: const Text(
-                  'Create Ticket',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.electricBlue,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildActionGridButton(
-                      title: 'Generate Report',
-                      icon: Icons.file_copy_outlined,
-                      onTap: () => Navigator.pushNamed(context, '/report'),
-                    ),
+              if (!_isHistoricalView) ...[
+                const SizedBox(height: 28),
+                ElevatedButton.icon(
+                  onPressed: _createTicket,
+                  icon: const Icon(Icons.confirmation_number_outlined, color: Colors.black),
+                  label: const Text(
+                    'Create Ticket',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildActionGridButton(
-                      title: 'Ask EVision AI',
-                      icon: Icons.chat_bubble_outline_rounded,
-                      onTap: () => Navigator.pushNamed(context, '/assistant'),
-                    ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.electricBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                ],
-              ),
-              const SizedBox(height: 24),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildActionGridButton(
+                        title: 'Generate Report',
+                        icon: Icons.file_copy_outlined,
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/report',
+                          arguments: {
+                            'errorCode': widget.errorCode,
+                            'activityRecord': widget.activityRecord,
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildActionGridButton(
+                        title: 'Ask EVision AI',
+                        icon: Icons.chat_bubble_outline_rounded,
+                        onTap: () => Navigator.pushNamed(context, '/assistant'),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+              ],
             ],
           ),
         ),
@@ -207,14 +233,14 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: _cardSurface,
+        color: _t.cardSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.dangerRed.withValues(alpha: 0.3)),
       ),
-      child: const Text(
+      child: Text(
         'No fault details are available for this diagnosis yet.',
         style: TextStyle(
-          color: _mutedText,
+          color: _t.textSecondary,
           fontSize: 13,
           height: 1.5,
         ),
@@ -247,10 +273,10 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
         const SizedBox(height: 14),
         Text(
           _headlineTitle(fault),
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
-            color: Colors.white,
+            color: _t.textPrimary,
             letterSpacing: -0.4,
             height: 1.15,
           ),
@@ -259,8 +285,8 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
           const SizedBox(height: 10),
           Text(
             subtitle,
-            style: const TextStyle(
-              color: _mutedText,
+            style: TextStyle(
+              color: _t.textSecondary,
               fontSize: 14,
               height: 1.45,
             ),
@@ -270,13 +296,58 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     );
   }
 
+  String _displaySpec(String value) => value.trim().isEmpty ? '—' : value.trim();
+
+  Widget _buildChargerSpecSection() {
+    return _buildSectionCard(
+      icon: Icons.ev_station_outlined,
+      iconColor: _accentCyan,
+      title: 'Charger Specification Details',
+      child: Column(
+        children: [
+          _buildSpecRow('Brand', _displaySpec(_globalState.brand)),
+          _buildSpecRow('Model', _displaySpec(_globalState.chargerModel)),
+          _buildSpecRow('Serial Number', _displaySpec(_globalState.serialNumber)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSpecRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              label,
+              style: TextStyle(color: _t.textSecondary, fontSize: 13),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                color: _t.textPrimary,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildConfidenceCard() {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _cardSurface,
+        color: _t.cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: _t.subtleBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,10 +355,10 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
+              Text(
                 'AI Confidence Score',
                 style: TextStyle(
-                  color: _mutedText,
+                  color: _t.textSecondary,
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
                 ),
@@ -312,8 +383,8 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
   Widget _buildDiagnosticExplanationSection(List<DetectedFault> faults) {
     final List<String> bullets;
     if (widget.errorCode.toLowerCase() == 'protection-issue' &&
-        _globalState.scanFindings.isNotEmpty) {
-      bullets = _globalState.scanFindings
+        _resolvedScanFindings.isNotEmpty) {
+      bullets = _resolvedScanFindings
           .map(FaultCatalog.simplifySpecFinding)
           .toSet()
           .toList();
@@ -372,9 +443,9 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _cardSurface,
+        color: _t.cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: _t.subtleBorder),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,8 +456,8 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
               const SizedBox(width: 8),
               Text(
                 title,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: _t.textPrimary,
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
@@ -394,7 +465,7 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
             ],
           ),
           const SizedBox(height: 14),
-          Container(height: 1, color: _sectionDivider),
+          Container(height: 1, color: _t.sectionDivider),
           const SizedBox(height: 14),
           child,
         ],
@@ -420,8 +491,8 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: _t.textPrimary,
                 fontSize: 14,
                 height: 1.5,
               ),
@@ -442,9 +513,9 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
         decoration: BoxDecoration(
-          color: _cardSurface,
+          color: _t.cardSurface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+          border: Border.all(color: _t.subtleBorder),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -455,10 +526,10 @@ class _DiagnosisResultScreenState extends State<DiagnosisResultScreen> with Tick
               child: Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 13,
-                  color: Colors.white,
+                  color: _t.textPrimary,
                 ),
               ),
             ),
@@ -492,7 +563,7 @@ class _GradientConfidenceBar extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Container(color: Colors.white.withValues(alpha: 0.08)),
+            Container(color: context.adaptive.emptyFill),
             FractionallySizedBox(
               alignment: Alignment.centerLeft,
               widthFactor: progress.clamp(0.0, 1.0),

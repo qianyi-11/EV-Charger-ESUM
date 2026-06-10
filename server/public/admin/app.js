@@ -56,6 +56,35 @@ const AdminApp = (() => {
     return ticket.chargerBrand || '-';
   }
 
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  async function loadAuthedImage(url) {
+    const token = getToken();
+    const res = await fetch(url, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('Could not load image');
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  }
+
+  async function hydrateImages(root) {
+    const images = root.querySelectorAll('img[data-auth-src]');
+    for (const img of images) {
+      try {
+        img.src = await loadAuthedImage(img.dataset.authSrc);
+      } catch {
+        img.alt = 'Image unavailable';
+      }
+    }
+  }
+
   async function loginWithCredentials(email, password) {
     const data = await api('/api/auth/login', {
       method: 'POST',
@@ -203,10 +232,55 @@ const AdminApp = (() => {
     });
   }
 
+  function renderDetailsValue(label, value) {
+    return `<div class="label">${label}</div><div>${escapeHtml(value ?? '-')}</div>`;
+  }
+
+  function renderIssueDetailsValue(label, value, ticket) {
+    if (label !== 'Details') {
+      return renderDetailsValue(label, value);
+    }
+
+    let detailsHtml = `<div>${escapeHtml(ticket.details || '-').replace(/\n/g, '<br>')}</div>`;
+    if (ticket.isolatorPhotoUrl) {
+      detailsHtml += `
+        <div class="details-ebox">
+          <div class="label" style="margin-top:8px;">Isolator photo</div>
+          <img data-auth-src="${ticket.isolatorPhotoUrl}" alt="Isolator switch photo" class="ebox-shot" />
+        </div>`;
+    }
+    if (ticket.evdbPhotoUrl) {
+      detailsHtml += `
+        <div class="details-ebox">
+          <div class="label" style="margin-top:8px;">EVDB photo</div>
+          <img data-auth-src="${ticket.evdbPhotoUrl}" alt="EVDB panel photo" class="ebox-shot" />
+        </div>`;
+    }
+    if (ticket.eboxScreenshotUrl) {
+      detailsHtml += `
+        <div class="details-ebox">
+          <div class="label" style="margin-top:8px;">e.Box screenshot</div>
+          <img data-auth-src="${ticket.eboxScreenshotUrl}" alt="e.Box app screenshot" class="ebox-shot" />
+        </div>`;
+    }
+    return `<div class="label">Details</div><div>${detailsHtml}</div>`;
+  }
+
+  function renderDetailsGrid(gridId, fields, ticket, { issueSection = false } = {}) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    grid.innerHTML = fields
+      .map(([label, value]) =>
+        issueSection
+          ? renderIssueDetailsValue(label, value, ticket)
+          : renderDetailsValue(label, value),
+      )
+      .join('');
+    hydrateImages(grid);
+  }
+
   function renderDetails(ticket) {
-    const grid = document.getElementById('ticket-details');
-    const fields = [
-      ['Ticket ID', ticket.ticketId],
+    renderDetailsGrid('user-details', [
       ['Customer', ticket.fullName],
       ['Email', ticket.userEmail],
       ['Salutation', ticket.salutation || '-'],
@@ -214,21 +288,186 @@ const AdminApp = (() => {
       ['Address', ticket.address || '-'],
       ['Car brand', ticket.carBrand === 'Others' ? ticket.carBrandOther : ticket.carBrand],
       ['Installed with RExharge', ticket.installedWithRexharge || '-'],
+    ], ticket);
+
+    renderDetailsGrid('charger-details', [
       ['Charger brand', chargerBrandLabel(ticket)],
       ['Serial number', ticket.chargerSerialNumber || '-'],
       ['Installation date', ticket.installationDate || '-'],
-      ['Faulty component', ticket.faultyComponent || '-'],
-      ['Describe issue', ticket.describeIssue || '-'],
-      ['Issue type', ticket.issueType],
-      ['Details', ticket.details || '-'],
-      ['Source error code', ticket.sourceErrorCode || '-'],
-      ['Created', ticket.createdAt],
-      ['Updated', ticket.updatedAt],
-    ];
+    ], ticket);
 
-    grid.innerHTML = fields.map(([label, value]) => `
-      <div class="label">${label}</div><div>${value ?? '-'}</div>
-    `).join('');
+    renderDetailsGrid(
+      'issue-details',
+      [
+        ['Ticket ID', ticket.ticketId],
+        ['Faulty component', ticket.faultyComponent || '-'],
+        ['Issue type', ticket.issueType],
+        ['Details', ticket.details || '-'],
+        ['Created', ticket.createdAt],
+        ['Updated', ticket.updatedAt],
+      ],
+      ticket,
+      { issueSection: true },
+    );
+  }
+
+  function formatBubbleTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function formatDateChip(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(today.getDate() - 1);
+
+    const sameDay = (a, b) =>
+      a.getFullYear() === b.getFullYear() &&
+      a.getMonth() === b.getMonth() &&
+      a.getDate() === b.getDate();
+
+    if (sameDay(d, today)) return 'Today';
+    if (sameDay(d, yesterday)) return 'Yesterday';
+    return d.toLocaleDateString([], { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+
+  function dateKey(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  }
+
+  function initialsFromName(name) {
+    const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  }
+
+  function setupWaHeader(ticket) {
+    const nameEl = document.getElementById('wa-contact-name');
+    const subEl = document.getElementById('wa-contact-sub');
+    const avatarEl = document.getElementById('wa-avatar');
+    if (nameEl) nameEl.textContent = ticket.fullName || 'Customer';
+    if (subEl) subEl.textContent = ticket.userEmail || '';
+    if (avatarEl) avatarEl.textContent = initialsFromName(ticket.fullName);
+  }
+
+  function autoResizeChatInput() {
+    const input = document.getElementById('chat-input');
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+  }
+
+  async function renderChatMessages(messages) {
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    if (!messages.length) {
+      container.innerHTML = '<p class="wa-empty">No messages yet. Send a message to start the conversation.</p>';
+      return;
+    }
+
+    let html = '';
+    let lastDate = '';
+
+    messages.forEach((message) => {
+      const chip = formatDateChip(message.createdAt);
+      const key = dateKey(message.createdAt);
+      if (key && key !== lastDate) {
+        lastDate = key;
+        html += `<div class="wa-date-chip"><span>${escapeHtml(chip)}</span></div>`;
+      }
+
+      const isOut = message.direction === 'admin';
+      const attachment = message.attachmentUrl
+        ? `<img data-auth-src="${message.attachmentUrl}" alt="Attachment" class="chat-attachment" />`
+        : '';
+      html += `
+        <div class="wa-msg-row ${isOut ? 'out' : 'in'}">
+          <div class="wa-bubble ${isOut ? 'out' : 'in'}">
+            <span class="wa-bubble-text">${escapeHtml(message.body).replace(/\n/g, '<br>')}</span>
+            ${attachment}
+            <span class="wa-bubble-meta">
+              <span class="wa-time">${formatBubbleTime(message.createdAt)}</span>
+            </span>
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+    await hydrateImages(container);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function loadChat(ticketId) {
+    const data = await api(`/api/tickets/${ticketId}/messages`);
+    await renderChatMessages(data.messages || []);
+  }
+
+  let chatPollTimer = null;
+
+  function startChatPolling(ticketId) {
+    stopChatPolling();
+    chatPollTimer = setInterval(() => {
+      loadChat(ticketId).catch(() => {});
+    }, 8000);
+  }
+
+  function stopChatPolling() {
+    if (chatPollTimer) {
+      clearInterval(chatPollTimer);
+      chatPollTimer = null;
+    }
+  }
+
+  async function sendChatMessage(ticketId) {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+    const body = input?.value.trim() || '';
+    const senderName = 'EVision Support';
+
+    if (!body) return;
+
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+      await api(`/api/tickets/${ticketId}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ body, senderName }),
+      });
+      if (input) {
+        input.value = '';
+        autoResizeChatInput();
+      }
+      await loadChat(ticketId);
+    } catch (err) {
+      alert(err.message || 'Could not send message.');
+    } finally {
+      if (sendBtn) sendBtn.disabled = false;
+      input?.focus();
+    }
+  }
+
+  function bindChatComposer(ticketId) {
+    const input = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('chat-send-btn');
+
+    sendBtn?.addEventListener('click', () => sendChatMessage(ticketId));
+
+    input?.addEventListener('input', autoResizeChatInput);
+
+    input?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendChatMessage(ticketId);
+      }
+    });
   }
 
   async function initDetailPage() {
@@ -250,6 +489,10 @@ const AdminApp = (() => {
       document.getElementById('ticket-status').value = ticket.status;
       engineerSelect.value = ticket.assignedEngineer || 'Unassigned';
       renderDetails(ticket);
+      setupWaHeader(ticket);
+      bindChatComposer(ticketId);
+      await loadChat(ticketId);
+      startChatPolling(ticketId);
 
       document.getElementById('save-btn').addEventListener('click', async () => {
         const msg = document.getElementById('save-msg');

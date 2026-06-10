@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import '../models/support_ticket.dart';
 import 'auth_service.dart';
 import 'server_connectivity_service.dart';
@@ -43,7 +45,14 @@ class TicketService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<SupportTicket> addTicket(SupportTicket ticket) async {
+  Future<SupportTicket> addTicket(
+    SupportTicket ticket, {
+    File? eboxScreenshot,
+    File? isolatorPhoto,
+    File? evdbPhoto,
+    String? isolatorPhotoFilename,
+    String? evdbPhotoFilename,
+  }) async {
     final payload = {
       'salutation': ticket.salutation,
       'fullName': ticket.fullName,
@@ -62,11 +71,52 @@ class TicketService extends ChangeNotifier {
       'sourceErrorCode': ticket.sourceErrorCode,
     };
 
-    final res = await http.post(
-      Uri.parse('$_apiBase/tickets'),
-      headers: AuthService.instance.authHeaders(),
-      body: jsonEncode(payload),
-    );
+    if (isolatorPhotoFilename != null && isolatorPhotoFilename.isNotEmpty) {
+      payload['isolatorPhotoFilename'] = isolatorPhotoFilename;
+    }
+    if (evdbPhotoFilename != null && evdbPhotoFilename.isNotEmpty) {
+      payload['evdbPhotoFilename'] = evdbPhotoFilename;
+    }
+
+    final http.Response res;
+    final hasFileUploads =
+        eboxScreenshot != null ||
+        (isolatorPhoto != null && isolatorPhotoFilename == null) ||
+        (evdbPhoto != null && evdbPhotoFilename == null);
+    if (hasFileUploads) {
+      final request = http.MultipartRequest('POST', Uri.parse('$_apiBase/tickets'));
+      request.headers.addAll(AuthService.instance.authHeaders(json: false));
+      request.fields['data'] = jsonEncode(payload);
+      if (eboxScreenshot != null) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'eboxScreenshot',
+          eboxScreenshot.path,
+          contentType: MediaType('image', 'jpeg'),
+        ));
+      }
+      if (isolatorPhoto != null && isolatorPhotoFilename == null) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'isolatorPhoto',
+          isolatorPhoto.path,
+          contentType: MediaType('image', 'jpeg'),
+        ));
+      }
+      if (evdbPhoto != null && evdbPhotoFilename == null) {
+        request.files.add(await http.MultipartFile.fromPath(
+          'evdbPhoto',
+          evdbPhoto.path,
+          contentType: MediaType('image', 'jpeg'),
+        ));
+      }
+      final streamed = await request.send();
+      res = await http.Response.fromStream(streamed);
+    } else {
+      res = await http.post(
+        Uri.parse('$_apiBase/tickets'),
+        headers: AuthService.instance.authHeaders(),
+        body: jsonEncode(payload),
+      );
+    }
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     if (res.statusCode >= 400) {
       throw Exception(data['error'] ?? 'Failed to submit ticket');

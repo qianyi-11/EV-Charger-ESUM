@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../models/diagnostic_state.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/floating_orbs.dart';
+import '../widgets/pulsing_glow.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -11,8 +12,47 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+class _CommonIssue {
+  final String title;
+  final String description;
+  final String date;
+  final bool isNew;
+
+  const _CommonIssue({
+    required this.title,
+    required this.description,
+    required this.date,
+    this.isNew = false,
+  });
+}
+
 class _HomeScreenState extends State<HomeScreen> {
   final DiagnosticState _state = DiagnosticState();
+  final Set<int> _expandedIssues = {};
+
+  static const List<_CommonIssue> _commonIssues = [
+    _CommonIssue(
+      title: 'Low Charging Speed',
+      description:
+          'Charging speed may be lower than expected due to battery temperature, vehicle charging limitations, grid power restrictions, or charger settings. In some cases, the vehicle intentionally reduces charging power to protect battery health. Lower charging speeds are not always indicative of a charger malfunction.',
+      date: '2026-02-18',
+      isNew: true,
+    ),
+    _CommonIssue(
+      title: 'Charging Cable Damaged',
+      description:
+          'Charging cables are exposed to frequent handling and environmental conditions. Physical damage such as cuts, cracks, bent pins, or worn insulation can affect charging performance and create safety risks. Damaged cables should be inspected and replaced as necessary.',
+      date: '2026-02-17',
+      isNew: true,
+    ),
+    _CommonIssue(
+      title: 'Connector Not Detected',
+      description:
+          'The charging connector must be securely inserted before a charging session can begin. Dirt, debris, damaged contacts, or incomplete insertion may prevent the charger from detecting the connector. Regular inspection and proper handling of charging equipment can reduce connection issues.',
+      date: '2026-02-16',
+      isNew: true,
+    ),
+  ];
 
   @override
   void initState() {
@@ -51,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "Dashboard",
+                          "Home",
                           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                             letterSpacing: -0.5,
@@ -79,14 +119,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       _buildAnimatedEntrance(
                         delayIndex: 0,
-                        child: _buildQuickActionCard(
-                          context: context,
-                          title: "Start Diagnosis",
-                          subtitle: "AI-powered charger fault detection",
-                          icon: Icons.camera_alt,
-                          color: AppColors.electricBlue,
-                          onTap: () => Navigator.pushNamed(context, "/unified-detection"),
-                        ),
+                        child: _buildStartDiagnosisHero(context),
                       ),
 
                       const SizedBox(height: 28),
@@ -141,6 +174,35 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
 
+                      const SizedBox(height: 28),
+
+                      Row(
+                        children: [
+                          const Icon(Icons.report_problem_outlined, color: AppColors.dangerRed, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Common Issues',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      _buildAnimatedEntrance(
+                        delayIndex: 2,
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < _commonIssues.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 10),
+                              _buildCommonIssueCard(context, _commonIssues[i], i),
+                            ],
+                          ],
+                        ),
+                      ),
+
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -153,55 +215,226 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickActionCard({
-    required BuildContext context,
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required Color color,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildStartDiagnosisHero(BuildContext context) {
     final adaptive = context.adaptive;
+
     return _InteractiveCard(
-      onTap: onTap,
-      child: GlassContainer(
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-        borderColor: color.withOpacity(0.2),
+      onTap: () => Navigator.pushNamed(context, '/unified-detection'),
+      child: PulsingGlow(
+        glowColor: AppColors.electricBlue,
+        maxBlurRadius: 36,
+        minBlurRadius: 14,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.electricBlue.withValues(alpha: adaptive.isDark ? 0.28 : 0.18),
+                adaptive.isDark
+                    ? const Color(0xFF0C1A2E)
+                    : AppColors.electricBlue.withValues(alpha: 0.06),
+              ],
+            ),
+            border: Border.all(
+              color: AppColors.electricBlue.withValues(alpha: 0.55),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.electricBlue.withValues(alpha: 0.22),
+                blurRadius: 24,
+                spreadRadius: 1,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.black,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 12,
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.camera_alt_rounded, color: AppColors.electricBlue, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Start Diagnosis',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: adaptive.textPrimary,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'AI-powered charger fault detection',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: adaptive.textSecondary,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.arrow_forward_ios, color: adaptive.textSecondary, size: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _toggleIssueExpanded(int index) {
+    setState(() {
+      if (_expandedIssues.contains(index)) {
+        _expandedIssues.remove(index);
+      } else {
+        _expandedIssues.add(index);
+      }
+    });
+  }
+
+  Widget _buildCommonIssueCard(BuildContext context, _CommonIssue issue, int index) {
+    final adaptive = context.adaptive;
+    final expanded = _expandedIssues.contains(index);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: adaptive.cardSurface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: adaptive.subtleBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(icon, color: color, size: 28),
-            ),
-            const SizedBox(width: 16),
+            Container(width: 4, color: AppColors.dangerRed),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: adaptive.textPrimary,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 14, 14, 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.dangerRed.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.warning_amber_rounded,
+                        color: AppColors.dangerRed,
+                        size: 22,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: adaptive.textSecondary,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  issue.title,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: adaptive.textPrimary,
+                                  ),
+                                ),
+                              ),
+                              if (issue.isNew) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.successGreen,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'NEW',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.black,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          GestureDetector(
+                            onTap: () => _toggleIssueExpanded(index),
+                            behavior: HitTestBehavior.opaque,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AnimatedSize(
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeOut,
+                                  alignment: Alignment.topLeft,
+                                  child: Text(
+                                    issue.description,
+                                    maxLines: expanded ? null : 3,
+                                    overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      height: 1.45,
+                                      color: adaptive.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  expanded ? 'Tap to show less' : 'Tap to read more',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.electricBlue.withValues(alpha: 0.9),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            issue.date,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: adaptive.textSecondary.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-            Icon(Icons.arrow_forward_ios, color: adaptive.textSecondary, size: 16),
           ],
         ),
       ),

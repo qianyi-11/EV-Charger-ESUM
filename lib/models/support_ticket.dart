@@ -22,6 +22,7 @@ class SupportTicket {
   final String? assignedEngineer;
   final String? issueType;
   final int? ticketNumber;
+  final String? eboxScreenshotUrl;
 
   const SupportTicket({
     required this.id,
@@ -45,6 +46,7 @@ class SupportTicket {
     this.assignedEngineer,
     this.issueType,
     this.ticketNumber,
+    this.eboxScreenshotUrl,
   });
 
   String get ticketIdLabel =>
@@ -105,6 +107,7 @@ class SupportTicket {
         sourceErrorCode: json['sourceErrorCode'] as String?,
         status: json['status'] as String? ?? 'open',
         assignedEngineer: json['assignedEngineer'] as String?,
+        eboxScreenshotUrl: json['eboxScreenshotUrl'] as String?,
       );
 
   factory SupportTicket.fromJson(Map<String, dynamic> json) => SupportTicket(

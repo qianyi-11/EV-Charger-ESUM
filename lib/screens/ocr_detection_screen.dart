@@ -21,6 +21,8 @@ class OcrDetectionScreen extends StatefulWidget {
 }
 
 class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProviderStateMixin {
+  AdaptiveTheme get _t => context.adaptive;
+
   OcrState _currentState = OcrState.instruction;
   
   // Capturing telemetry simulation
@@ -64,8 +66,8 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        Text(label, style: TextStyle(color: _t.textSecondary, fontSize: 13)),
+        Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: _t.textPrimary)),
       ],
     );
   }
@@ -154,9 +156,9 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           return;
         }
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("OCR extracted: '${result.extractedText}'"),
-          duration: const Duration(seconds: 2),
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Charger label read successfully.'),
+          duration: Duration(seconds: 2),
         ));
         setState(() {
           _currentState = OcrState.success;
@@ -186,10 +188,11 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
         final String errorMsg;
         if (result.quotaExceeded) {
           errorMsg = result.reason ??
-              "OCR service quota exceeded. Wait about a minute, then try again.";
+              "The scan service is busy. Wait about a minute, then try again.";
         } else if (result.reason != null && result.reason!.isNotEmpty) {
           errorMsg = result.reason!;
-        } else if (result.extractedText.startsWith('OCR failed:') ||
+        } else if (result.extractedText.startsWith('Scan failed:') ||
+            result.extractedText.startsWith('OCR failed:') ||
             result.extractedText.startsWith('Server error:')) {
           errorMsg = result.extractedText.contains('Connection') ||
                   result.extractedText.contains('SocketException')
@@ -222,42 +225,60 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
 
   @override
   Widget build(BuildContext context) {
+    final t = context.adaptive;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: t.background,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text("Charger OCR Diagnosis"),
+        title: Text("Step 1: Scan Charger Label", style: TextStyle(color: t.textPrimary)),
+        iconTheme: IconThemeData(color: t.textPrimary),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 10),
-
-              // Main interactive viewfinder / container
-              Expanded(
-                flex: 4,
-                child: GlassContainer(
-                  padding: const EdgeInsets.all(16),
-                  child: _buildStateViewfinder(),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Description and status card
-              Expanded(
-                flex: 3,
+        child: _currentState == OcrState.instruction
+            ? Align(
+                alignment: const Alignment(0, -0.18),
                 child: SingleChildScrollView(
-                  child: _buildBottomPanel(),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      GlassContainer(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildStateViewfinder(),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildBottomPanel(),
+                    ],
+                  ),
+                ),
+              )
+            : Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 8),
+                    Expanded(
+                      flex: 4,
+                      child: GlassContainer(
+                        padding: const EdgeInsets.all(16),
+                        child: _buildStateViewfinder(),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Expanded(
+                      flex: 3,
+                      child: SingleChildScrollView(
+                        child: _buildBottomPanel(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -271,27 +292,28 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
             PulsingGlow(
               glowColor: AppColors.electricBlue,
               child: Container(
-                width: 60,
-                height: 60,
+                width: 48,
+                height: 48,
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: LinearGradient(
                     colors: [AppColors.electricBlue, Color(0xFF005F80)],
                   ),
                 ),
-                child: const Icon(Icons.camera_alt, color: Colors.white, size: 28),
+                child: const Icon(Icons.camera_alt, color: Colors.white, size: 22),
               ),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              "Capture Spec Plate",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
             const SizedBox(height: 12),
-            const Text(
-              "Position the camera directly in front of the technical specification label to extract model and warranty tags.",
+            Text(
+              "Capture your charger label",
               textAlign: TextAlign.center,
-              style: TextStyle(color: AppColors.textSecondary, height: 1.4),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _t.textPrimary),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              "Find the sticker on your charger.",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: _t.textSecondary, fontSize: 13, height: 1.35),
             ),
           ],
         );
@@ -403,9 +425,9 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
+            Text(
               "Retake Required",
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _t.textPrimary),
             ),
             const SizedBox(height: 10),
             Text(
@@ -439,13 +461,13 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              "Processing OCR...",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+            Text(
+              "Reading your charger label...",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: _t.textPrimary),
             ),
             const SizedBox(height: 8),
             const Text(
-              "Extracting charger model details and serial telemetry metrics...",
+              "Please hold still while we read the model, serial number, and voltage from your photo.",
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -468,17 +490,17 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
         ),
       ),
       const SizedBox(height: 20),
-      const Text(
-        "Data Extracted Successfully!",
-        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+      Text(
+        "Label captured successfully",
+        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _t.textPrimary),
       ),
       const SizedBox(height: 16),
       Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.04),
+          color: _t.emptyFill,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.glassBorder),
+          border: Border.all(color: _t.glassBorder),
         ),
         child: Column(
           children: [
@@ -505,28 +527,30 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Tips Card
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.02),
+                color: _t.emptyFill,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.glassBorder),
+                border: Border.all(color: _t.glassBorder),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("OCR Scanning Tips:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 12),
-                  _buildTipItem("Hold phone extremely steady"),
+                  Text(
+                    "Tips",
+                    style: TextStyle(fontWeight: FontWeight.bold, color: _t.textPrimary, fontSize: 14),
+                  ),
                   const SizedBox(height: 8),
-                  _buildTipItem("Ensure high contrast and lighting"),
-                  const SizedBox(height: 8),
-                  _buildTipItem("Keep barcode or spec values in focus"),
+                  _buildTipItem("Hold steady, avoid glare"),
+                  const SizedBox(height: 6),
+                  _buildTipItem("Keep the whole label in frame"),
+                  const SizedBox(height: 6),
+                  _buildTipItem("Use good lighting"),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _startCamera,
               style: ElevatedButton.styleFrom(
@@ -534,7 +558,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text("Start Camera", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
+              child: const Text("Open Camera", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.black)),
             ),
           ],
         );
@@ -545,7 +569,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
           children: [
             const SizedBox(height: 8),
             const Text(
-              "Aim at the spec plate label and tap capture to extract serials.",
+              "Line up the charger label inside the frame, then tap Capture Photo.",
               style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               textAlign: TextAlign.center,
             ),
@@ -592,7 +616,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Before you retake:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  Text("Before you retake:", style: TextStyle(fontWeight: FontWeight.bold, color: _t.textPrimary)),
                   const SizedBox(height: 12),
                   _buildTipItem("Hold the phone steady and ensure good lighting"),
                   const SizedBox(height: 8),
@@ -618,7 +642,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
       case OcrState.processing:
         return const Center(
           child: Text(
-            "Verifying data against internal server databases...",
+            "This usually takes a few seconds...",
             style: TextStyle(color: AppColors.textSecondary),
           ),
         );
@@ -626,7 +650,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
       case OcrState.success:
         return const Center(
           child: Text(
-            "Loading diagnostic model parameters. Please wait...",
+            "Great — moving to the next step...",
             style: TextStyle(color: AppColors.successGreen, fontWeight: FontWeight.w600),
           ),
         );
@@ -641,7 +665,7 @@ class _OcrDetectionScreenState extends State<OcrDetectionScreen> with TickerProv
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+            style: TextStyle(fontSize: 13, color: _t.textSecondary),
           ),
         ),
       ],

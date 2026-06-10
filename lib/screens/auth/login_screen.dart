@@ -4,6 +4,7 @@ import '../../services/auth_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/auth_form_field.dart';
 import '../../widgets/auth_scaffold.dart';
+import '../../widgets/dev_server_host_editor.dart';
 import 'sign_up_screen.dart';
 import 'forgot_password_screen.dart';
 
@@ -55,6 +56,25 @@ class _LoginScreenState extends State<LoginScreen> {
     return AuthScaffold(
       title: 'Welcome to EVision',
       subtitle: 'Sign in to continue',
+      centerContent: true,
+      topRightAction: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => DevServerHostEditor.showHostDialog(context),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              gradient: const LinearGradient(
+                colors: [AppColors.electricBlue, Color(0xFF007A99)],
+              ),
+            ),
+            child: const Icon(Icons.flash_on, color: Colors.white, size: 22),
+          ),
+        ),
+      ),
       child: Form(
         key: _formKey,
         child: Column(
@@ -121,12 +141,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     : const Text('Sign In', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text('First time here?', style: TextStyle(color: AppColors.textSecondary)),
                 TextButton(
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
                   onPressed: _loading
                       ? null
                       : () async {

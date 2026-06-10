@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
@@ -9,6 +10,8 @@ import '../../services/camera_session_manager.dart';
 import '../../services/integration_controller.dart';
 import '../../services/sharp_capture.dart';
 import '../../services/gallery_image_picker.dart';
+import '../../services/diagnosis_photo_store.dart';
+import '../../services/diagnosis_photo_service.dart';
 
 enum EvdbPhase { scanning, analyzing, retake, result }
 
@@ -104,6 +107,20 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
     }
   }
 
+  Future<void> _saveEvdbPhoto(XFile photo) async {
+    try {
+      final persisted = await DiagnosisPhotoStore.persistCapture(photo, 'evdb');
+      _state.setEvdbPhotoPath(persisted);
+      final serverFilename =
+          await DiagnosisPhotoService.uploadToServer(File(persisted), kind: 'evdb');
+      if (serverFilename != null) {
+        _state.setEvdbPhotoServerFilename(serverFilename);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[EvdbDetect] photo save/upload: $e');
+    }
+  }
+
   Future<void> _processImage(XFile photo) async {
     setState(() {
       _phase = EvdbPhase.analyzing;
@@ -160,6 +177,8 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
         });
         return;
       }
+
+      await _saveEvdbPhoto(photo);
 
       _state.setPowerBranchOutcomes(
         isolatorOn: _state.isIsolatorOn,
@@ -297,7 +316,7 @@ class _EvdbDetectionScreenState extends State<EvdbDetectionScreen> {
                         SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            'Capture or upload a clear photo of the EVDB showing MCB and RCCB breakers.',
+                            'Step 4: Photograph the breaker panel (EVDB) so we can see the MCB and RCCB switches clearly.',
                             style: TextStyle(color: Colors.white, fontSize: 14),
                           ),
                         ),

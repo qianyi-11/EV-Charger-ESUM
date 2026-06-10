@@ -10,6 +10,20 @@ class DetectedFault {
     required this.faultDetail,
     required this.recommendedAction,
   });
+
+  Map<String, dynamic> toMap() => {
+        'component': component,
+        'faultType': faultType,
+        'faultDetail': faultDetail,
+        'recommendedAction': recommendedAction,
+      };
+
+  factory DetectedFault.fromMap(Map<String, dynamic> map) => DetectedFault(
+        component: map['component']?.toString() ?? '',
+        faultType: map['faultType']?.toString() ?? '',
+        faultDetail: map['faultDetail']?.toString() ?? '',
+        recommendedAction: map['recommendedAction']?.toString() ?? '',
+      );
 }
 
 /// Canonical fault text from the EV charger diagnostic specification.
@@ -96,16 +110,36 @@ class FaultCatalog {
     );
   }
 
-  /// Short phase summary for tickets, e.g. "3 phase supply, spec required 1 phase."
-  static String? phaseMismatchSummary(String issue) {
+  static String _phaseDescription(int phases) {
+    switch (phases) {
+      case 1:
+        return 'single-phase';
+      case 3:
+        return 'three-phase';
+      default:
+        return '$phases-phase';
+    }
+  }
+
+  static ({String component, int supplyPhases, int requiredPhases})? _parsePhaseMismatch(
+    String issue,
+  ) {
     if (!issue.toLowerCase().contains('phase mismatch')) return null;
+
+    final componentMatch =
+        RegExp(r'^(\w+)\s+phase mismatch', caseSensitive: false).firstMatch(issue);
+    final component = componentMatch?.group(1) ?? 'Breaker';
 
     final newFmt = RegExp(
       r'phase mismatch:\s*(\d+)\s*phase supply,\s*spec required (\d+)\s*phase',
       caseSensitive: false,
     ).firstMatch(issue);
     if (newFmt != null) {
-      return '${newFmt.group(1)} phase supply, spec required ${newFmt.group(2)} phase.';
+      return (
+        component: component,
+        supplyPhases: int.parse(newFmt.group(1)!),
+        requiredPhases: int.parse(newFmt.group(2)!),
+      );
     }
 
     final oldFmt = RegExp(
@@ -113,22 +147,47 @@ class FaultCatalog {
       caseSensitive: false,
     ).firstMatch(issue);
     if (oldFmt != null) {
-      return '${oldFmt.group(1)} phase supply, spec required ${oldFmt.group(2)} phase.';
+      return (
+        component: component,
+        supplyPhases: int.parse(oldFmt.group(1)!),
+        requiredPhases: int.parse(oldFmt.group(2)!),
+      );
     }
+
     return null;
+  }
+
+  /// Short phase summary for tickets, e.g. "3 phase supply, spec required 1 phase."
+  static String? phaseMismatchSummary(String issue) {
+    final parsed = _parsePhaseMismatch(issue);
+    if (parsed == null) return null;
+    return '${parsed.supplyPhases} phase supply, spec required ${parsed.requiredPhases} phase.';
+  }
+
+  /// Plain-language phase mismatch line for the diagnosis result page.
+  static String humanizePhaseMismatchFinding(String issue) {
+    final parsed = _parsePhaseMismatch(issue);
+    if (parsed == null) return issue;
+
+    final supply = _phaseDescription(parsed.supplyPhases);
+    final required = _phaseDescription(parsed.requiredPhases);
+    switch (parsed.component.toUpperCase()) {
+      case 'MCB':
+        return 'The main circuit breaker (MCB) is set up for $supply power, '
+            'but your charger label requires $required.';
+      case 'RCCB':
+        return 'The earth leakage breaker (RCCB) is set up for $supply power, '
+            'but your charger label requires $required.';
+      default:
+        return 'The ${parsed.component} is set up for $supply power, '
+            'but your charger label requires $required.';
+    }
   }
 
   /// Simplified finding line for result page analysis section.
   static String simplifySpecFinding(String issue) {
     if (!issue.toLowerCase().contains('phase mismatch')) return issue;
-    final componentMatch =
-        RegExp(r'^(\w+)\s+phase mismatch', caseSensitive: false).firstMatch(issue);
-    final component = componentMatch?.group(1) ?? 'Component';
-    final summary = phaseMismatchSummary(issue);
-    if (summary != null) {
-      return '$component phase mismatch: $summary';
-    }
-    return issue;
+    return humanizePhaseMismatchFinding(issue);
   }
 
   static List<DetectedFault> fromEvdbAnalysis({

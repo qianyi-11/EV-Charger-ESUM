@@ -24,12 +24,26 @@ class AppTheme {
 
   static ThemeData get lightTheme {
     return ThemeData.light().copyWith(
+      brightness: Brightness.light,
       scaffoldBackgroundColor: lightBackground,
       colorScheme: const ColorScheme.light(
         primary: AppColors.electricBlue,
         secondary: AppColors.electricBlue,
         error: AppColors.dangerRed,
         surface: lightSurface,
+        onSurface: lightTextPrimary,
+        onBackground: lightTextPrimary,
+      ),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: lightTextPrimary,
+        iconTheme: IconThemeData(color: lightTextPrimary),
+        titleTextStyle: TextStyle(
+          color: lightTextPrimary,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
       ),
       textTheme: const TextTheme(
         headlineLarge: TextStyle(
@@ -152,6 +166,14 @@ class AdaptiveTheme {
   Color get textSecondary => isDark ? AppColors.textSecondary : AppTheme.lightTextSecondary;
   Color get glassBg => isDark ? AppColors.glassBg : const Color(0xCCFFFFFF);
   Color get glassBorder => isDark ? AppColors.glassBorder : const Color(0x22000000);
+  Color get cardSurface => isDark ? const Color(0xFF0C1224) : AppTheme.lightSurface;
+  Color get sectionDivider => isDark ? const Color(0xFF1A2238) : const Color(0xFFE2E8F0);
+  Color get subtleBorder => isDark
+      ? Colors.white.withValues(alpha: 0.06)
+      : Colors.black.withValues(alpha: 0.08);
+  Color get emptyFill => isDark
+      ? Colors.white.withValues(alpha: 0.08)
+      : Colors.black.withValues(alpha: 0.06);
 }
 
 extension AdaptiveThemeContext on BuildContext {
