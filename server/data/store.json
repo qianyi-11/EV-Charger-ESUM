@@ -3,7 +3,7 @@
     {
       "id": 1,
       "email": "admin@gmail.com",
-      "password_hash": "$2b$10$JmlZnOxffYQT9XXAHpQQMejWGxgiNnQ31SxgKbB0NYd8QecNSeX.6",
+      "password_hash": "$2b$10$hdcfdqV7z.APEb7YsAzvW.kJHVBep.s0rGBTlDUgWbZheB2OQbhOm",
       "first_name": "Admin",
       "last_name": "EVision",
       "phone": "01111111111",
@@ -59,6 +59,16 @@
       "phone": "01234567",
       "role": "user",
       "created_at": "2026-06-10T16:23:32.695Z"
+    },
+    {
+      "id": 7,
+      "email": "leeweiyun@gmail.com",
+      "password_hash": "$2b$10$IKVeD.DxjJeO40YEUSPj7ex/JpiRYCxxGDwh.xgNSQ23hPKewtLhm",
+      "first_name": "lee",
+      "last_name": "wei yun",
+      "phone": "013-4956268",
+      "role": "user",
+      "created_at": "2026-06-11T09:34:39.217Z"
     }
   ],
   "tickets": [
@@ -277,15 +287,44 @@
       "assigned_engineer": null,
       "created_at": "2026-06-10T17:07:01.261Z",
       "updated_at": "2026-06-10T17:08:45.582Z"
+    },
+    {
+      "id": 9,
+      "ticket_number": 1009,
+      "user_id": 6,
+      "user_email": "limweiwei@gmail.com",
+      "salutation": "Mr",
+      "full_name": "Lim Wei Wei",
+      "contact_number": "01234567",
+      "address": "aaa",
+      "car_brand": "Proton",
+      "car_brand_other": null,
+      "installed_with_rexharge": "Yes",
+      "charger_brand": "RExharge REVO",
+      "charger_brand_other": null,
+      "charger_serial_number": "HIDM25000033",
+      "installation_date": null,
+      "faulty_component": "Isolator",
+      "describe_issue": "Isolator OFF",
+      "issue_type": "Isolator OFF",
+      "details": "aaa",
+      "source_error_code": "power-cut",
+      "ebox_screenshot": null,
+      "isolator_photo": "isolator_1781169624369_596395333.jpg",
+      "evdb_photo": null,
+      "status": "in_progress",
+      "assigned_engineer": "Ahmad",
+      "created_at": "2026-06-11T09:23:51.973Z",
+      "updated_at": "2026-06-11T09:26:41.328Z"
     }
   ],
   "resetCodes": [],
   "counters": {
-    "userId": 6,
-    "ticketId": 8,
-    "ticketNumber": 1008,
+    "userId": 7,
+    "ticketId": 9,
+    "ticketNumber": 1009,
     "resetCodeId": 0,
-    "messageId": 4
+    "messageId": 5
   },
   "ticketMessages": [
     {
@@ -339,6 +378,19 @@
       "via_email": 0,
       "email_sent": 1,
       "created_at": "2026-06-10T17:08:45.582Z"
+    },
+    {
+      "id": 5,
+      "ticket_id": 9,
+      "direction": "admin",
+      "body": "u nid to turn on",
+      "sender_name": "EVision Support",
+      "sender_email": "",
+      "attachment_filename": null,
+      "attachment_type": null,
+      "via_email": 0,
+      "email_sent": 1,
+      "created_at": "2026-06-11T09:26:41.328Z"
     }
   ]
 }

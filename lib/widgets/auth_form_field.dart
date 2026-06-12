@@ -25,15 +25,17 @@ class AuthFormField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final adaptive = context.adaptive;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
+            color: adaptive.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
@@ -43,28 +45,32 @@ class AuthFormField extends StatelessWidget {
           keyboardType: keyboardType,
           validator: validator,
           maxLines: maxLines,
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(color: adaptive.textPrimary),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
+            hintStyle: TextStyle(color: adaptive.textSecondary.withValues(alpha: 0.7)),
             filled: true,
-            fillColor: AppColors.tertiaryBg,
+            fillColor: adaptive.isDark ? AppColors.tertiaryBg : AppTheme.lightSurface,
             suffixIcon: suffixIcon,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.glassBorder),
+              borderSide: BorderSide(color: adaptive.subtleBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.glassBorder),
+              borderSide: BorderSide(color: adaptive.subtleBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.electricBlue),
+              borderSide: const BorderSide(color: AppColors.electricBlue, width: 1.5),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: const BorderSide(color: AppColors.dangerRed),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.dangerRed, width: 1.5),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           ),

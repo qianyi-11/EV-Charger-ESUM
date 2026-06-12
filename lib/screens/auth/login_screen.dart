@@ -68,7 +68,9 @@ class _LoginScreenState extends State<LoginScreen> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
               gradient: const LinearGradient(
-                colors: [AppColors.electricBlue, Color(0xFF007A99)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppColors.electricBlue, Color(0xFF93C5FD)],
               ),
             ),
             child: const Icon(Icons.flash_on, color: Colors.white, size: 22),
@@ -100,7 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                  color: AppColors.textSecondary,
+                  color: context.adaptive.textSecondary,
                 ),
                 onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
               ),

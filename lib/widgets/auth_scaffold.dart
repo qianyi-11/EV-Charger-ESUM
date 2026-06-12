@@ -33,7 +33,9 @@ class AuthScaffold extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               gradient: const LinearGradient(
-                colors: [AppColors.electricBlue, Color(0xFF007A99)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppColors.electricBlue, Color(0xFF93C5FD)],
               ),
             ),
             child: const Icon(Icons.flash_on, color: Colors.white, size: 34),
