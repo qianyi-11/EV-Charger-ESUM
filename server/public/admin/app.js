@@ -242,6 +242,17 @@ const AdminApp = (() => {
     }
 
     let detailsHtml = `<div>${escapeHtml(ticket.details || '-').replace(/\n/g, '<br>')}</div>`;
+    if (ticket.issueType === 'Red light flashes 6 times') {
+      detailsHtml += `
+        <div class="details-ebox">
+          <div class="label" style="margin-top:8px;">Error</div>
+          <div>Ground Fault</div>
+        </div>
+        <div class="details-ebox">
+          <div class="label" style="margin-top:8px;">Error Cause</div>
+          <div>Wrong</div>
+        </div>`;
+    }
     if (ticket.isolatorPhotoUrl) {
       detailsHtml += `
         <div class="details-ebox">
@@ -415,7 +426,7 @@ const AdminApp = (() => {
   function startChatPolling(ticketId) {
     stopChatPolling();
     chatPollTimer = setInterval(() => {
-      loadChat(ticketId).catch(() => {});
+      loadChat(ticketId).catch(() => { });
     }, 8000);
   }
 
