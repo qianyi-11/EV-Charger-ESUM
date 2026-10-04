@@ -1,6 +1,6 @@
-# EVision AI
+# EVision 
 
-EVision AI is a Flutter-based EV charger inspection and diagnostic application designed to help technicians quickly assess charger health, capture specification details, and review fault conditions through guided workflows.
+EVision is a Flutter-based EV charger inspection and diagnostic application designed to help technicians quickly assess charger health, capture specification details, and review fault conditions through guided workflows.
 
 This project presents a modern mobile-first diagnostic dashboard for EV charging equipment, combining image capture, visual scanning, result tracking, and an AI-style troubleshooting assistant.
 
